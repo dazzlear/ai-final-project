@@ -1,0 +1,32 @@
+WikiMIA_length64 Dataset Check Summary
+=============================================
+
+Total rows: 542
+Columns: ['text_id', 'text', 'label']
+
+Label meaning:
+0 = non-member / unseen
+1 = member / seen
+
+Label distribution:
+label
+0    258
+1    284
+
+Data quality check:
+Missing text values: 0
+Missing label values: 0
+Duplicate texts: 0
+
+Sample rows:
+   text_id                                                                                                                                                                                                                                                                                                                                                                                                                       text  label
+0        0                                                     The 12th Circle Chart Music Awards ceremony was held at KSPO Dome in Seoul on February 18, 2023, to recognise the best artists and recordings, primarily based on Circle Music Chart of the year from December 1, 2021, to November 30, 2022. The ceremony was hosted by Doyoung and Miyeon. BTS was the most awarded act with 5 awards, followed by Blackpink with 4.      0
+1        1           Hurricane Ana was the second tropical cyclone in 2014 to threaten the U.S. state of Hawaii with a direct hit, after Iselle in August. The twenty-first named storm and fifteenth hurricane of the 2014 Pacific hurricane season, Ana formed from a disturbance that formed in the Central Pacific in mid-October. It rapidly consolidated, and a tropical depression developed by October 13. Aided by favorable      1
+2        2                  On 6 February 2023 a referendum was held in the Wolayita, Gamo, Gofa, South Omo, Gedeo, and Konso Zones, as well as the Dirashe, Amaro, Burji, Ale, and Basketo special woredas of the Southern Nations, Nationalities, and Peoples' Region (SNNP) of Ethiopia, on whether the included areas should leave SNNP and form their own Region. This referendum follows two previous referendums from 2019 and      0
+3        3                     Between the months of March and April 2014, a court in Minya, Egypt, has recommended the death sentence to hundreds of members and supporters of the banned Muslim Brotherhood over an attack on a police station in December 2013. The defendants included Mohamed Badie, the group's top leader, whose sentence was confirmed on June 21, 2014, along with 181 of the brotherhood's supporters. This      1
+4        4                                                  The 2014 Coupe de la Ligue Final was the 20th final of France's football league cup competition, the Coupe de la Ligue, a competition for the 42 teams that the Ligue de Football Professionnel (LFP) manages. The final took place on 19 April 2014 at the Stade de France in Saint-Denis and was contested between Lyon and Paris Saint-Germain. PSG won 2–1 and became      1
+5        5   The 2013–2016 epidemic of Ebola virus disease, centered in Western Africa, was the most widespread outbreak of the disease in history. It caused major loss of life and socioeconomic disruption in the region, mainly in Guinea, Liberia and Sierra Leone. The first cases were recorded in Guinea in December 2013; later, the disease spread to neighbouring Liberia and Sierra Leone, with minor outbreaks occurring      1
+6        6                             The BRW Rich 200, 2014 is the 31st annual survey of the wealthiest people resident in Australia, published online by The Australian Financial Review on 26 June 2014.In the 2014 list, the net worth of the wealthiest individual, Gina Rinehart, was A$14.02 billion. Fourteen women and 186 men made the 2014 list.The BRW Rich Families List was published annually since 2008. In the 2014      1
+7        7  The case of Ashya King concerns a boy named Ashya King, who had a brain tumour. His parents, Brett and Naghemeh King, took their son out of Southampton General Hospital (England) in August 2014 over a disagreement with doctors regarding his treatment.Ashya had a medulloblastoma, which was successfully removed through surgery on 24 July 2014. He received further neurosurgery on 22 August.His parents desired      1
+8        8                                  The 67th British Academy Film Awards, more commonly known as the BAFTAs, were held on 16 February 2014 at the Royal Opera House in London, honouring the best national and foreign films of 2013. The nominations were announced on 8 January 2014 by actor Luke Evans and actress Helen McCrory. Presented by the British Academy of Film and Television Arts, accolades were handed out      1
+9        9          A by-election was held on 20 November 2014 for the UK parliamentary constituency of Rochester and Strood in Kent, England. The sitting Member of Parliament (MP) Mark Reckless called it on joining the UK Independence Party (UKIP), from the Conservatives. He resigned his seat.Reckless retained the seat, and polled 42.1% of the vote as the UKIP candidate. The Conservative Party came second with 34.8%,      1
