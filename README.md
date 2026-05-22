@@ -41,47 +41,6 @@ where Min-K%(x) is the set of the k% tokens with the **lowest** token probabilit
 
 ---
 
-## Repository Structure
-
-```
-min-k-prob/
-│
-├── data/
-│   ├── wikimia_length64_sample.csv        # 5–10 sample rows for smoke testing
-│   └── wikimia_length64_processed.csv     # Full processed WikiMIA dataset
-│
-├── src/
-│   ├── data.py        # Dataset loading (load_wikimia)
-│   ├── models.py      # Model and tokenizer loading (load_model)
-│   ├── methods.py     # Scoring functions (get_token_logprobs, min_k_prob, ppl_score, zlib_score)
-│   ├── evaluate.py    # Evaluation metrics (compute_auc, tpr_at_fpr)
-│   └── run.py         # Main entry point — runs full pipeline
-│
-├── outputs/
-│   ├── smoke_test_scores.csv              # Day 1 sanity check output
-│   ├── logprobs_wikimia_len64.pkl         # Cached token log-probabilities
-│   ├── all_scores.csv                     # Min-K%, PPL, zlib scores for all samples
-│   ├── evaluation_summary.csv             # AUC and TPR@5% FPR per method
-│   └── table1_results.csv                 # Table 1-style results
-│
-├── figures/
-│   └── roc_curve_min_k.png               # ROC curve comparing all methods
-│
-├── docs/
-│   ├── framework_overview.md
-│   ├── methodology.md
-│   ├── algorithm_pseudocode.md
-│   ├── dataset_section.md
-│   ├── results_analysis.md
-│   └── limitations.md
-│
-├── README.md
-├── requirements.txt
-└── FINAL_REPORT.pdf
-```
-
----
-
 ## Dataset
 
 We use **WikiMIA** — the benchmark introduced in the original paper — loaded from HuggingFace:
@@ -162,23 +121,6 @@ outputs/evaluation_summary.csv
 outputs/table1_results.csv
 figures/roc_curve_min_k.png
 ```
-
----
-
-## Key Functions
-
-All scoring and evaluation functions follow agreed names for consistency across the team:
-
-| Function | File | Description |
-|---|---|---|
-| `load_wikimia()` | `src/data.py` | Loads and preprocesses WikiMIA dataset |
-| `load_model()` | `src/models.py` | Loads model and tokenizer |
-| `get_token_logprobs()` | `src/methods.py` | Computes per-token log-probabilities |
-| `min_k_prob()` | `src/methods.py` | Computes Min-K% Prob score (default k=20) |
-| `ppl_score()` | `src/methods.py` | Computes perplexity-based score |
-| `zlib_score()` | `src/methods.py` | Computes zlib entropy-normalized score |
-| `compute_auc()` | `src/evaluate.py` | Computes AUC from scores and labels |
-| `tpr_at_fpr()` | `src/evaluate.py` | Computes TPR at a fixed FPR (default 5%) |
 
 ---
 
