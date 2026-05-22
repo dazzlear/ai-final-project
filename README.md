@@ -1,100 +1,223 @@
-# :detective: Detecting Pretraining Data from Large Language Models
+# Min-K% Prob — Framework Implementation
 
-This repository provides an original implementation of [Detecting Pretraining Data from Large Language Models](https://arxiv.org/pdf/2310.16789.pdf) by *Weijia Shi, *Anirudh Ajith, Mengzhou Xia, Yangsibo Huang, Daogao Liu
-, Terra Blevins
-, Danqi Chen
-, Luke Zettlemoyer
+An independent implementation of the **Min-K% Prob** pretraining data detection method from:
 
-[Website](https://swj0419.github.io/detect-pretrain.github.io/) |  [Paper](https://arxiv.org/pdf/2310.16789.pdf) | [WikiMIA Benchmark](https://huggingface.co/datasets/swj0419/WikiMIA) |  [BookMIA Benchmark](https://huggingface.co/datasets/swj0419/BookMIA) | [Detection Method Min-K% Prob](#🚀run-our-min-k%-prob-&-other-baselines)(see the following codebase) 
+> *Detecting Pretraining Data from Large Language Models*
+> Weijia Shi, Anirudh Ajith, Mengzhou Xia, Yangsibo Huang, Daogao Liu, Terra Blevins, Danqi Chen, Luke Zettlemoyer
+> Published at **ICLR 2024** · [arXiv:2310.16789](https://arxiv.org/abs/2310.16789)
 
-## Overview
-We explore the **pretraining data detection problem**: given a piece of text and black-box access to an LLM without knowing the pretraining data, can we determine if the model was trained on the provided text? 
-To faciliate the study, we built a dynamic benchmark **WikiMIA** to systematically evaluate detecting methods and proposed **Min-K% Prob** 🕵️, a method for detecting undisclosed pretraining data from large language models. 
+---
 
-<p align="center">
-  <img src="mink_prob.png" width="80%" height="80%">
-</p>
+## What This Project Does
 
-:star: If you find our implementation and paper helpful, please consider citing our work :star: :
+This repository builds the core computational framework of Min-K% Prob — a reference-free membership inference attack (MIA) method for detecting whether a piece of text was included in an LLM's pretraining data.
+
+Given a text sample and black-box access to an LLM, the method checks: **was this text seen during pretraining?**
+
+The system produces:
+- Token log-probability scores for each input text
+- Min-K% Prob scores (default k=20)
+- PPL and zlib baseline scores
+- AUC and TPR@5% FPR evaluation metrics
+- A result table (Table 1-style)
+- ROC curve figure
+
+---
+
+## How Min-K% Prob Works
+
+The method is based on a simple hypothesis:
+
+- **Unseen (non-member) text** tends to contain a few outlier tokens with very low probabilities under the LLM.
+- **Seen (member) text** is less likely to contain such low-probability tokens, because the model has already learned them.
+
+Given a sequence of tokens $x = x_1, x_2, \ldots, x_N$, the score is computed as:
+
+$$\text{Min-K\% Prob}(x) = \frac{1}{|E|} \sum_{x_i \in \text{Min-K\%}(x)} \log p(x_i \mid x_1, \ldots, x_{i-1})$$
+
+where Min-K%(x) is the set of the k% tokens with the **lowest** token probabilities. A higher score means the text is more likely to be a member of the pretraining data.
+
+**No reference model or access to pretraining data is required.**
+
+---
+
+## Repository Structure
+
+```
+min-k-prob/
+│
+├── data/
+│   ├── wikimia_length64_sample.csv        # 5–10 sample rows for smoke testing
+│   └── wikimia_length64_processed.csv     # Full processed WikiMIA dataset
+│
+├── src/
+│   ├── data.py        # Dataset loading (load_wikimia)
+│   ├── models.py      # Model and tokenizer loading (load_model)
+│   ├── methods.py     # Scoring functions (get_token_logprobs, min_k_prob, ppl_score, zlib_score)
+│   ├── evaluate.py    # Evaluation metrics (compute_auc, tpr_at_fpr)
+│   └── run.py         # Main entry point — runs full pipeline
+│
+├── outputs/
+│   ├── smoke_test_scores.csv              # Day 1 sanity check output
+│   ├── logprobs_wikimia_len64.pkl         # Cached token log-probabilities
+│   ├── all_scores.csv                     # Min-K%, PPL, zlib scores for all samples
+│   ├── evaluation_summary.csv             # AUC and TPR@5% FPR per method
+│   └── table1_results.csv                 # Table 1-style results
+│
+├── figures/
+│   └── roc_curve_min_k.png               # ROC curve comparing all methods
+│
+├── docs/
+│   ├── framework_overview.md
+│   ├── methodology.md
+│   ├── algorithm_pseudocode.md
+│   ├── dataset_section.md
+│   ├── results_analysis.md
+│   └── limitations.md
+│
+├── README.md
+├── requirements.txt
+└── FINAL_REPORT.pdf
+```
+
+---
+
+## Dataset
+
+We use **WikiMIA** — the benchmark introduced in the original paper — loaded from HuggingFace:
+
+```
+swj0419/WikiMIA
+```
+
+We use the `WikiMIA_length64` split. Labels are:
+- `1` = **member** (text seen during pretraining — from pre-2017 Wikipedia)
+- `0` = **non-member** (text not seen during pretraining — from post-2023 Wikipedia)
+
+The temporal gap between member and non-member data ensures ground truth accuracy: events after an LLM's training cutoff are guaranteed to be unseen.
+
+---
+
+## Models
+
+We use models from the **Pythia** family (EleutherAI), chosen for accessibility and open weights:
+
+| Model | Use |
+|---|---|
+| `EleutherAI/pythia-410m` | Primary (default, fastest) |
+| `EleutherAI/pythia-1b` | Fallback if 410m is insufficient |
+| `EleutherAI/pythia-2.8b` | Larger run, closer to paper results |
+
+Start with the smallest model to confirm the pipeline works before scaling up.
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/<your-org>/min-k-prob.git
+cd min-k-prob
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+**requirements.txt** includes:
+```
+torch
+transformers
+datasets
+scikit-learn
+pandas
+numpy
+matplotlib
+zlib  # standard library, no install needed
+```
+
+---
+
+## Quickstart
+
+### Step 1 — Smoke test (5–10 samples)
+
+Confirms that the pipeline can load data, load a model, compute scores, and save output.
+
+```bash
+python src/run.py --smoke_test
+```
+
+Expected output: `outputs/smoke_test_scores.csv`
+
+### Step 2 — Full run
+
+```bash
+python src/run.py --dataset wikimia_length64 --model EleutherAI/pythia-410m --k 20
+```
+
+Expected outputs:
+```
+outputs/all_scores.csv
+outputs/evaluation_summary.csv
+outputs/table1_results.csv
+figures/roc_curve_min_k.png
+```
+
+---
+
+## Key Functions
+
+All scoring and evaluation functions follow agreed names for consistency across the team:
+
+| Function | File | Description |
+|---|---|---|
+| `load_wikimia()` | `src/data.py` | Loads and preprocesses WikiMIA dataset |
+| `load_model()` | `src/models.py` | Loads model and tokenizer |
+| `get_token_logprobs()` | `src/methods.py` | Computes per-token log-probabilities |
+| `min_k_prob()` | `src/methods.py` | Computes Min-K% Prob score (default k=20) |
+| `ppl_score()` | `src/methods.py` | Computes perplexity-based score |
+| `zlib_score()` | `src/methods.py` | Computes zlib entropy-normalized score |
+| `compute_auc()` | `src/evaluate.py` | Computes AUC from scores and labels |
+| `tpr_at_fpr()` | `src/evaluate.py` | Computes TPR at a fixed FPR (default 5%) |
+
+---
+
+## Expected Results
+
+Based on the original paper (Table 1, Pythia-2.8B, original setting):
+
+| Method | AUC |
+|---|---|
+| PPL | 0.61 |
+| Zlib | 0.65 |
+| Neighbor | 0.61 |
+| **Min-K% Prob** | **0.67** |
+
+Our implementation targets results in the same range using `pythia-410m` on `WikiMIA_length64`. Results may differ slightly due to model size.
+
+---
+
+## Team
+
+| Member | Role | Primary Deliverables |
+|---|---|---|
+| Dazel | Dataset and Data Preparation | WikiMIA loading, dataset script, dataset docs |
+| Hanna | Implementation | Model loading, token log-prob pipeline, Min-K% scoring |
+| Jianna | Baselines and Evaluation | PPL/zlib baselines, AUC, TPR, result table, ROC curve |
+| Kurt | Documentation and Final Assembly | Methodology, pseudocode, limitations, README, final report |
+
+---
+
+## Reference
 
 ```bibtex
-@misc{shi2023detecting,
-    title={Detecting Pretraining Data from Large Language Models},
-    author={Weijia Shi and Anirudh Ajith and Mengzhou Xia and Yangsibo Huang and Daogao Liu and Terra Blevins and Danqi Chen and Luke Zettlemoyer},
-    year={2023},
-    eprint={2310.16789},
-    archivePrefix={arXiv},
-    primaryClass={cs.CL}
+@inproceedings{shi2024detecting,
+  title     = {Detecting Pretraining Data from Large Language Models},
+  author    = {Shi, Weijia and Ajith, Anirudh and Xia, Mengzhou and Huang, Yangsibo
+               and Liu, Daogao and Blevins, Terra and Chen, Danqi and Zettlemoyer, Luke},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024}
 }
 ```
 
-## 📘 WikiMIA Datasets
-
-The **WikiMIA datasets** serve as a benchmark designed to evaluate membership inference attack (MIA) methods, specifically in detecting pretraining data from extensive large language models. Access our **WikiMIA datasets** directly on [Hugging Face](https://huggingface.co/datasets/swj0419/WikiMIA).
-
-#### Loading the Datasets:
-
-```python
-from datasets import load_dataset
-LENGTH = 64
-dataset = load_dataset("swj0419/WikiMIA", split=f"WikiMIA_length{LENGTH}")
-```
-* Available Text Lengths: `32, 64, 128, 256`.
-* *Label 0*: Refers to the unseen data during pretraining. *Label 1*: Refers to the seen data.
-* WikiMIA is applicable to all models released between 2017 to 2023 such as  `LLaMA1/2, GPT-Neo, OPT, Pythia, text-davinci-001, text-davinci-002 ...`
-
-## 📘 BookMIA Datasets for evaluating MIA on OpenAI models
-
-The BookMIA datasets serve as a benchmark designed to evaluate membership inference attack (MIA) methods, specifically in detecting pretraining data from OpenAI models that are released before 2023 (such as text-davinci-003). Access our **BookMIA datasets** directly on [Hugging Face](https://huggingface.co/datasets/swj0419/BookMIA).
-
-The dataset contains non-member and member data: 
-- non-member data consists of text excerpts from books first published in 2023
-- member data includes text excerpts from older books, as categorized by Chang et al. in 2023.
-
-
-#### Loading the Datasets:
-
-```python
-from datasets import load_dataset
-dataset = load_dataset("swj0419/BookMIA")
-```
-* Available Text Lengths: `512`.
-* *Label 0*: Refers to the unseen data during pretraining. *Label 1*: Refers to the seen data.
-* WikiMIA is applicable to OpenAI models that are released before 2023  `text-davinci-003, text-davinci-002 ...`
-
-
-
-## 🚀 Run our Min-K% Prob & Other Baselines
-
-Our codebase supports many models: Whether you're using **OpenAI models** that offer logits or models from **Huggingface**, we've got you covered:
-
-- **OpenAI Models**:
-  - `text-davinci-003`
-  - `text-davinci-002`
-  - ...
-
-- **Huggingface Models**:
-  - `meta-llama/Llama-2-70b`
-  - `huggyllama/llama-70b`
-  - `EleutherAI/gpt-neox-20b`
-  - ...
-
-🔐 **Important**: When using OpenAI models, ensure to add your API key at `Line 38` in `run.py`:
-```python
-openai.api_key = "YOUR_API_KEY"
-```
-Use the following command to run the model:
-```bash
-python src/run.py --target_model text-davinci-003 --ref_model huggyllama/llama-7b --data swj0419/WikiMIA --length 64
-```
-🔍 Parameters Explained:
-* Target Model: Set using --target_model. For instance, --target_model huggyllama/llama-70b.
-
-* Reference Model: Defined using --ref_model. Example: --ref_model huggyllama/llama-7b.
-
-* Data Length: Define the length for the WikiMIA benchmark with --length. Available options: 32, 54, 128, 256.
-
-<span style="color:red;">📌 Note: ***For optimal results, use fixed-length inputs with our Min-K% Prob method***</span> (When you evalaute Min-K% Prob method on your own dataset, make sure the input length of each example is the same.)
-
-📊 Baselines: Our script comes with the following baselines: PPL, Calibration Method, PPL/zlib_compression, PPL/lowercase_ppl
-
+Official project page: [swj0419.github.io/detect-pretrain.github.io](https://swj0419.github.io/detect-pretrain.github.io)
