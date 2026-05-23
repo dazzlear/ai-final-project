@@ -3,6 +3,7 @@
 import pickle
 from pathlib import Path
 from src.metrics import compute_auc, tpr_at_fpr
+import csv
 
 DRIVE     = "/content/drive/MyDrive/ai-final-project"
 SCORE_DIR = Path(f"{DRIVE}/outputs/scores")
@@ -66,3 +67,23 @@ latex = "\n".join(lines)
 print(latex)
 TABLE_OUT.write_text(latex)
 print(f"\nSaved → {TABLE_OUT}")
+
+# ── also save evaluation_summary.csv ──────────────────────────────────────
+EVAL_OUT = Path(f"{DRIVE}/outputs/evaluation_summary.csv")
+
+with open(EVAL_OUT, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["method", "model", "auc", "tpr_at_5fpr"])
+    for model in MODELS:
+        if model not in data:
+            continue
+        scores = data[model]["scores"]
+        labels = data[model]["labels"]
+        for method in METHODS:
+            if method not in scores:
+                continue
+            auc = compute_auc(scores[method], labels)
+            tpr = tpr_at_fpr(scores[method], labels)
+            writer.writerow([method, model, f"{auc:.4f}", f"{tpr:.4f}"])
+
+print(f"Saved → {EVAL_OUT}")
