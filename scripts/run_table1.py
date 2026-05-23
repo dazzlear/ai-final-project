@@ -107,7 +107,7 @@ for target_name in MODELS:
     for i, (lp_t, text) in enumerate(
         zip(target_lps[start_idx:], texts[start_idx:]), start=start_idx
     ):
-        lp_r = get_token_logprobs(ref_model, ref_tok, text)
+        lp_r = get_token_logprobs(text, ref_model, ref_tok)
         scores["Smaller Ref"].append(smaller_ref_score(lp_t, lp_r))
 
         if (i + 1) % 50 == 0:
