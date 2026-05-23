@@ -1,102 +1,48 @@
-import os
-import pickle
-import torch
-import pandas as pd
-from pathlib import Path
+# -- scores with checkpointing every 50 texts --
+checkpoint_path = SCORE_DIR / f"checkpoint_{short}.pkl"
 
-from src.baselines import (
-    ppl_score, zlib_score, lowercase_score,
-    smaller_ref_score, neighbor_score,
-)
-from src.methods import min_k_prob      # Hanna's
-from src.models import load_model, get_token_logprobs  # Hanna's
-from src.metrics import compute_auc, tpr_at_fpr
-
-# ── paths ──────────────────────────────────────────────────────────────────
-DRIVE      = "/content/drive/MyDrive/ai-final-project"
-DATA_PATH  = f"{DRIVE}/data/wikimia_length64_processed.csv"
-LOGPROB_DIR = Path(f"{DRIVE}/outputs/logprobs"); LOGPROB_DIR.mkdir(parents=True, exist_ok=True)
-SCORE_DIR   = Path(f"{DRIVE}/outputs/scores");   SCORE_DIR.mkdir(parents=True, exist_ok=True)
-
-REF_MODELS = {
-    "EleutherAI/pythia-2.8b":  "EleutherAI/pythia-70m",
-    "EleutherAI/gpt-neo-1.3B": "EleutherAI/gpt-neo-125m",
-    "facebook/opt-1.3b":       "facebook/opt-350m",
-}
-MODELS = list(REF_MODELS.keys())
-
-# ── load dataset ───────────────────────────────────────────────────────────
-df     = pd.read_csv(DATA_PATH)
-texts  = df["text"].tolist()
-labels = df["label"].tolist()
-print(f"Dataset loaded: {len(texts)} examples")
-
-# ── sanity check on 5 examples ─────────────────────────────────────────────
-print("\nRunning sanity check on 5 examples...")
-model, tok = load_model(MODELS[0])
-fn = lambda t: get_token_logprobs(model, tok, t)
-for ex in df.head(5).itertuples():
-    s = ppl_score(fn(ex.text))
-    print(f"  label={ex.label}  ppl={s:+.3f}")
-del model; torch.cuda.empty_cache()
-print("Sanity check done.\n")
-
-# ── main loop ──────────────────────────────────────────────────────────────
-for target_name in MODELS:
-    short = target_name.split("/")[-1]
-    cache_path = SCORE_DIR / f"scores_{short}.pkl"
-    if cache_path.exists():
-        print(f"SKIP {short} — already scored"); continue
-
-    print(f"\n=== {short} ===")
-
-    # -- target log-probs (cache to Drive) --
-    lp_path = LOGPROB_DIR / f"lp_{short}.pkl"
-    if lp_path.exists():
-        print("  Loading cached log-probs...")
-        target_lps = pickle.load(open(lp_path, "rb"))
-    else:
-        print("  Computing target log-probs...")
-        model, tok = load_model(target_name)
-        fn = lambda t: get_token_logprobs(model, tok, t)
-        target_lps = [fn(t) for t in texts]
-        pickle.dump(target_lps, open(lp_path, "wb"))
-        print(f"  Saved → {lp_path}")
-        del model; torch.cuda.empty_cache()
-
-    fn = lambda t: get_token_logprobs(
-        *load_model.cache[target_name], t
-    ) if False else None  # placeholder — ref model loaded below
-
-    # -- scores --
+# load existing checkpoint if run was interrupted
+if checkpoint_path.exists():
+    print("  Found checkpoint — resuming...")
+    checkpoint = pickle.load(open(checkpoint_path, "rb"))
+    scores = checkpoint["scores"]
+    start_idx = checkpoint["last_idx"] + 1
+    print(f"  Resuming from index {start_idx}")
+else:
     scores = {
-        "PPL":      [ppl_score(lp) for lp in target_lps],
-        "Zlib":     [zlib_score(lp, t) for lp, t in zip(target_lps, texts)],
-        "Min-K%":   [min_k_prob(lp, k=20) for lp in target_lps],
+        "PPL": [], "Zlib": [], "Min-K%": [],
+        "Lowercase": [], "Neighbor": [], "Smaller Ref": []
     }
+    start_idx = 0
 
-    # lowercase needs model reload
-    model, tok = load_model(target_name)
-    fn = lambda t: get_token_logprobs(model, tok, t)
-    scores["Lowercase"] = [lowercase_score(t, fn) for t in texts]
-    scores["Neighbor"]  = [neighbor_score(t, fn, n_neighbors=5) for t in texts]
-    del model; torch.cuda.empty_cache()
+model, tok = load_model(target_name)
+fn = lambda t: get_token_logprobs(model, tok, t)
 
-    # smaller ref needs ref model
-    ref_name = REF_MODELS[target_name]
-    ref_model, ref_tok = load_model(ref_name)
-    ref_lps = [get_token_logprobs(ref_model, ref_tok, t) for t in texts]
-    scores["Smaller Ref"] = [smaller_ref_score(t, r) for t, r in zip(target_lps, ref_lps)]
-    del ref_model; torch.cuda.empty_cache()
+for i, (lp, text) in enumerate(zip(target_lps[start_idx:], texts[start_idx:]), start=start_idx):
+    scores["PPL"].append(ppl_score(lp))
+    scores["Zlib"].append(zlib_score(lp, text))
+    scores["Min-K%"].append(min_k_prob(lp, k=20))
+    scores["Lowercase"].append(lowercase_score(text, fn))
+    scores["Neighbor"].append(neighbor_score(text, fn, n_neighbors=5))
 
-    # -- evaluate --
-    print(f"\n  Results for {short}:")
-    for method, sc in scores.items():
-        auc = compute_auc(sc, labels)
-        tpr = tpr_at_fpr(sc, labels)
-        print(f"    {method:12s}  AUC={auc:.3f}  TPR@5%FPR={tpr:.3f}")
+    # checkpoint every 50 texts
+    if (i + 1) % 50 == 0:
+        pickle.dump({"scores": scores, "last_idx": i}, open(checkpoint_path, "wb"))
+        print(f"  Checkpoint saved at index {i+1}/{ len(texts)}")
 
-    pickle.dump({"scores": scores, "labels": labels}, open(cache_path, "wb"))
-    print(f"  Saved → {cache_path}")
+del model; torch.cuda.empty_cache()
 
-print("\nAll done.")
+# smaller ref scores with same checkpointing
+ref_model, ref_tok = load_model(REF_MODELS[target_name])
+for i, (lp_t, text) in enumerate(zip(target_lps[start_idx:], texts[start_idx:]), start=start_idx):
+    lp_r = get_token_logprobs(ref_model, ref_tok, text)
+    scores["Smaller Ref"].append(smaller_ref_score(lp_t, lp_r))
+
+    if (i + 1) % 50 == 0:
+        pickle.dump({"scores": scores, "last_idx": i}, open(checkpoint_path, "wb"))
+        print(f"  Ref checkpoint saved at index {i+1}/{len(texts)}")
+
+del ref_model; torch.cuda.empty_cache()
+
+# delete checkpoint once fully complete
+checkpoint_path.unlink(missing_ok=True)
