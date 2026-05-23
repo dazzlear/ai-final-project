@@ -1,4 +1,4 @@
-"""Dry run for run_fig2a.py and run_fig2b.py logic — no GPU needed."""
+"""Dry run for run_fig2a.py logic — no GPU needed."""
 
 import pickle
 import random
@@ -12,7 +12,7 @@ torch.manual_seed(42)
 from src.baselines import ppl_score, neighbor_score
 from src.metrics import compute_auc
 
-# ── mock Hanna's functions ─────────────────────────────────────────────────
+# ── mocks ──────────────────────────────────────────────────────────────────
 def load_model(name):
     print(f"  [mock] load_model({name})")
     return None, None
@@ -24,17 +24,13 @@ def min_k_prob(logprobs, k=20):
     n = max(1, int(len(logprobs) * k / 100))
     return sum(sorted(logprobs)[:n]) / n
 
-# ── use local sample CSV for all lengths ───────────────────────────────────
-# since we only have length-64, reuse it for all lengths in the dry run
-SAMPLE_CSV  = "data/wikimia_length64_sample.csv"
-OUT         = Path("outputs/dry_run_test"); OUT.mkdir(parents=True, exist_ok=True)
+# ── paths ──────────────────────────────────────────────────────────────────
+SAMPLE_CSV    = "data/wikimia_length64_sample.csv"
+OUT           = Path("outputs/dry_run_test"); OUT.mkdir(parents=True, exist_ok=True)
+PYTHIA_SIZES  = ["pythia-160m", "pythia-410m", "pythia-1.4b", "pythia-2.8b"]
 
-# ══════════════════════════════════════════════════════════════════════════
-# TEST 1 — run_fig2a.py logic (model-size scaling)
-# ══════════════════════════════════════════════════════════════════════════
+# ── test run_fig2a logic ───────────────────────────────────────────────────
 print("\n=== DRY RUN: run_fig2a.py ===")
-
-PYTHIA_SIZES = ["pythia-160m", "pythia-410m", "pythia-1.4b", "pythia-2.8b"]
 
 df     = pd.read_csv(SAMPLE_CSV)
 texts  = df["text"].tolist()
@@ -55,4 +51,12 @@ for size in PYTHIA_SIZES:
     print(f"  {fig2a_results[size]}")
 
 pickle.dump(fig2a_results, open(OUT / "fig2a_results.pkl", "wb"))
-print("\nrun_fig2a logic OK")
+
+# ── verify ─────────────────────────────────────────────────────────────────
+print("\n=== Verifying pickle ===")
+r2a = pickle.load(open(OUT / "fig2a_results.pkl", "rb"))
+assert set(r2a.keys()) == set(PYTHIA_SIZES), "missing model sizes"
+for size in PYTHIA_SIZES:
+    assert set(r2a[size].keys()) == {"PPL", "Min-K%", "Neighbor"}
+print("Pickle keys correct.")
+print("\nDry run passed — ready for Colab.")
