@@ -24,7 +24,7 @@ def min_k_prob(logprobs: List[float], k: int = 20) -> float:
 
     # Negate the mean — matches run.py's sign convention:
     # higher score → model more surprised → more likely non-member
-    return float(-np.mean(min_k_lp))
+    return float(np.mean(min_k_lp))
 
 
 def save_logprobs_cache(logprobs_list: List[List[float]], cache_path: str) -> None:
