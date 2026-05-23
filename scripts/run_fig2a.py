@@ -15,7 +15,7 @@ results = {}  # results[size][method] = AUC
 for size in PYTHIA_SIZES:
     print(f"\n=== {size} ===")
     model, tok = load_model(f"EleutherAI/{size}")
-    fn = lambda t: get_token_logprobs(model, tok, t)
+    fn = lambda t: get_token_logprobs(t, model, tok)
     lps = [fn(t) for t in texts]
     results[size] = {
         "PPL":      compute_auc([ppl_score(lp) for lp in lps], labels),
