@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from models import get_token_logprobs
+from src.models import get_token_logprobs
 
 
 def min_k_prob(logprobs: List[float], k: int = 20) -> float:

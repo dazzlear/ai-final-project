@@ -1,6 +1,6 @@
-# Run this in the src/ folder
-from models import load_model, get_token_logprobs
-from methods import min_k_prob
+# Run this from the repository root
+from src.models import load_model, get_token_logprobs
+from src.methods import min_k_prob
 
 model, tokenizer = load_model("EleutherAI/pythia-410m")
 
