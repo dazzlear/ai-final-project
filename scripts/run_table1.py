@@ -39,7 +39,7 @@ print(f"Dataset loaded: {len(texts)} examples")
 # ── sanity check on 5 examples ─────────────────────────────────────────────
 print("\nRunning sanity check on 5 examples...")
 model, tok = load_model(MODELS[0])
-fn = lambda t: get_token_logprobs(model, tok, t)
+fn = lambda t: get_token_logprobs(t, model, tok)
 for ex in df.head(5).itertuples():
     s = ppl_score(fn(ex.text))
     print(f"  label={ex.label}  ppl={s:+.3f}")
@@ -63,7 +63,7 @@ for target_name in MODELS:
     else:
         print("  Computing target log-probs...")
         model, tok = load_model(target_name)
-        target_lps = [get_token_logprobs(model, tok, t) for t in texts]
+        target_lps = [get_token_logprobs(t, model, tok) for t in texts]
         pickle.dump(target_lps, open(lp_path, "wb"))
         print(f"  Saved → {lp_path}")
         del model; torch.cuda.empty_cache()
@@ -85,7 +85,7 @@ for target_name in MODELS:
 
     # -- score target model methods --
     model, tok = load_model(target_name)
-    fn = lambda t: get_token_logprobs(model, tok, t)
+    fn = lambda t: get_token_logprobs(t, model, tok)
 
     for i, (lp, text) in enumerate(
         zip(target_lps[start_idx:], texts[start_idx:]), start=start_idx
