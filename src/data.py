@@ -1,20 +1,25 @@
 """Dataset loading and preparation for Min-K% replication."""
 
 from pathlib import Path
+
 import pandas as pd
 from datasets import load_dataset
 
-_VALID_LENGTHS = {32, 64, 128, 256}
+VALID_LENGTHS = {32, 64, 128, 256}
+
 
 def load_wikimia(length: int = 64) -> pd.DataFrame:
     """Load WikiMIA dataset from Hugging Face.
     
-    Label: 0=non-member, 1=member
+    Labels: 0=non-member, 1=member. Returns columns: text_id, text, label.
     """
-    if length not in _VALID_LENGTHS:
-        raise ValueError(f"Unsupported length {length!r}. Must be one of {sorted(_VALID_LENGTHS)}.")
+    if length not in VALID_LENGTHS:
+        raise ValueError(
+            f"Unsupported length {length!r}. "
+            f"Must be one of {sorted(VALID_LENGTHS)}."
+        )
 
-    # Config name is the HuggingFace dataset config, split is always "train"
+    # Config name is dataset config (not split); split is always "train"
     dataset = load_dataset("swj0419/WikiMIA", f"WikiMIA_length{length}", split="train")
     df = dataset.to_pandas()
 
@@ -22,24 +27,28 @@ def load_wikimia(length: int = 64) -> pd.DataFrame:
     if "text_id" not in df.columns:
         df.insert(0, "text_id", range(len(df)))
 
-    # Normalize text column name (HuggingFace may use "input", "sentence", etc.)
-    text_columns = ["text", "input", "sentence", "content"]
-    text_column = next((col for col in text_columns if col in df.columns), None)
-    
+    # Normalize text column (HuggingFace may use "input", "sentence", etc.)
+    possible_text_columns = ["text", "input", "sentence", "content"]
+    text_column = next((col for col in possible_text_columns if col in df.columns), None)
+
     if text_column is None:
-        raise ValueError(f"No text column found. Available: {df.columns.tolist()}")
-    
+        raise ValueError(
+            f"No text column found. Available columns: {df.columns.tolist()}"
+        )
+
     if text_column != "text":
         df = df.rename(columns={text_column: "text"})
 
     if "label" not in df.columns:
-        raise ValueError(f"No label column found. Available: {df.columns.tolist()}")
+        raise ValueError(
+            f"No label column found. Available columns: {df.columns.tolist()}"
+        )
 
     return df[["text_id", "text", "label"]]
 
 
 def inspect_wikimia(df: pd.DataFrame) -> None:
-    """Print dataset statistics."""
+    """Print dataset statistics and label distribution."""
     print("\nDATASET PREVIEW")
     print(df.head())
     print("\nDATASET SHAPE")
@@ -52,13 +61,13 @@ def inspect_wikimia(df: pd.DataFrame) -> None:
 
 
 def save_wikimia_sample(length: int = 64, sample_size: int = 10) -> pd.DataFrame:
-    """Save balanced sample for testing."""
+    """Save balanced sample for smoke testing."""
     Path("data").mkdir(exist_ok=True)
     df = load_wikimia(length=length)
 
     half = sample_size // 2
-    
-    # Use sample() not head() to avoid row-order bias
+
+    # Use sample() not head() to avoid row-order selection bias
     members = df[df["label"] == 1].sample(half, random_state=42)
     non_members = df[df["label"] == 0].sample(half, random_state=42)
 
@@ -71,8 +80,10 @@ def save_wikimia_sample(length: int = 64, sample_size: int = 10) -> pd.DataFrame
 
     output_path = f"data/wikimia_length{length}_sample.csv"
     sample_df.to_csv(output_path, index=False)
-    print(f"\nSaved sample: {output_path}")
+
+    print(f"\nSaved sample file: {output_path}")
     print(sample_df.head())
+
     return sample_df
 
 
@@ -80,10 +91,13 @@ def save_wikimia_full(length: int = 64) -> pd.DataFrame:
     """Save full WikiMIA split as processed CSV."""
     Path("data").mkdir(exist_ok=True)
     df = load_wikimia(length=length)
-    
+
     output_path = f"data/wikimia_length{length}_processed.csv"
     df.to_csv(output_path, index=False)
-    print(f"\nSaved full dataset: {output_path}\nTotal rows: {len(df)}")
+
+    print(f"\nSaved full dataset file: {output_path}")
+    print(f"Total rows: {len(df)}")
+
     return df
 
 
