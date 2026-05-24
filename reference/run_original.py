@@ -16,8 +16,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
 import numpy as np
 from datasets import load_dataset
-from options import Options
-from eval import *
+from reference.options_original import Options
+from reference.eval_original import *
 
 
 def load_model(name1, name2):
