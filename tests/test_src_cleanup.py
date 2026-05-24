@@ -118,20 +118,17 @@ class TestLoadWikiMIA(unittest.TestCase):
         self.assertEqual(list(df["text_id"]), list(range(len(df))))
 
     @patch("data.load_dataset")
-    def test_load_dataset_called_with_config_not_split(self, mock_load):
-        """Bug fix: config name must be 2nd positional arg, split must be 'train'.
+    def test_load_dataset_uses_split_not_config(self, mock_load):
+        """The length variants are HuggingFace splits, not config names.
 
-        The old (broken) call was:
-            load_dataset('swj0419/WikiMIA', split='WikiMIA_length64')
-
-        The correct call passes the config name as the second positional argument:
-            load_dataset('swj0419/WikiMIA', 'WikiMIA_length128', split='train')
+        Correct call: load_dataset('swj0419/WikiMIA', split='WikiMIA_length128')
+        The dataset has one config ('default'); lengths are named splits.
         """
         from data import load_wikimia
         mock_load.return_value = _make_mock_hf_dataset()
         load_wikimia(length=128)
         mock_load.assert_called_once_with(
-            "swj0419/WikiMIA", "WikiMIA_length128", split="train"
+            "swj0419/WikiMIA", split="WikiMIA_length128"
         )
 
 

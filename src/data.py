@@ -19,8 +19,9 @@ def load_wikimia(length: int = 64) -> pd.DataFrame:
             f"Must be one of {sorted(VALID_LENGTHS)}."
         )
 
-    # Config name is dataset config (not split); split is always "train"
-    dataset = load_dataset("swj0419/WikiMIA", f"WikiMIA_length{length}", split="train")
+    # Split names are 'WikiMIA_length32', 'WikiMIA_length64', etc.
+    split_name = f"WikiMIA_length{length}"
+    dataset = load_dataset("swj0419/WikiMIA", split=split_name)
     df = dataset.to_pandas()
 
     # Track each row with text_id
