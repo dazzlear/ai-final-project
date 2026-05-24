@@ -1,103 +1,154 @@
-import pickle
-import os
-from typing import List, Optional
+"""Min-K% Prob detection method — Shi et al. (ICLR 2024), Section 3.
 
+Four-stage pipeline exposed separately for clarity:
+  1. tokenize_text() — tokenization
+  2. compute_token_logprobs() — token log probabilities
+  3. select_min_k_tokens() — select bottom K%
+  4. min_k_prob() — average log likelihood
+"""
+
+import math
 import numpy as np
-import pandas as pd
-from tqdm import tqdm
-
-from src.models import get_token_logprobs
+import torch
+from typing import List, Tuple, Dict, Optional
 
 
-def min_k_prob(logprobs: List[float], k: int = 20) -> float:
+def tokenize_text(
+    text: str,
+    tokenizer,
+    max_length: int = 1024,
+) -> Dict:
+    """Tokenize text. Returns dict with input_ids, tokens, n_tokens, was_truncated."""
+    enc = tokenizer(
+        text,
+        return_tensors='pt',
+        truncation=True,
+        max_length=max_length,
+    )
+    input_ids = enc['input_ids'][0].tolist()
 
-    # Compute the Min-K% Prob score for a single text.
-    if not logprobs:
-        return float("nan")
+    tokens = [
+        tokenizer.decode([tid], clean_up_tokenization_spaces=False)
+        for tid in input_ids
+    ]
 
-    k_length = max(1, int(len(logprobs) * k / 100))
+    # Check if full text exceeds max_length
+    full_len = tokenizer(text, return_tensors='pt')['input_ids'].shape[1]
+    was_truncated = full_len > max_length
 
-    # Sort ascending: most negative (most surprising) tokens come first
-    sorted_lp = np.sort(logprobs)
-
-    # Take the k_length most surprising tokens
-    min_k_lp = sorted_lp[:k_length]
-
-    # Higher (less negative) mean → model less surprised → member
-    return float(np.mean(min_k_lp))
-
-
-def save_logprobs_cache(logprobs_list: List[List[float]], cache_path: str) -> None:
-    """Persist a list of per-sample log-prob lists to disk."""
-    os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
-    with open(cache_path, "wb") as f:
-        pickle.dump(logprobs_list, f)
-    print(f"[save_logprobs_cache] Saved {len(logprobs_list)} samples → {cache_path}")
-
-
-def load_logprobs_cache(cache_path: str) -> Optional[List[List[float]]]:
-    """Load cached log-prob lists from disk. Returns None if file missing."""
-    if not os.path.exists(cache_path):
-        return None
-    with open(cache_path, "rb") as f:
-        data = pickle.load(f)
-    print(f"[load_logprobs_cache] Loaded {len(data)} samples from {cache_path}")
-    return data
+    return {
+        'input_ids'    : input_ids,
+        'tokens'       : tokens,
+        'n_tokens'     : len(input_ids),
+        'was_truncated': was_truncated,
+    }
 
 
-def score_dataset(
-    df: pd.DataFrame,
+def compute_token_logprobs(
+    text: str,
+    model,
+    tokenizer,
+    device: Optional[str] = None,
+    max_length: int = 1024,
+) -> List[float]:
+    """Run forward pass, return per-token log probabilities (N-1 values for N tokens).
+    
+    Computes: log p(x2|x1), log p(x3|x1,x2), ..., log p(xN|x1,...,xN-1)
+    """
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    enc = tokenizer(
+        text,
+        return_tensors='pt',
+        truncation=True,
+        max_length=max_length,
+    ).to(device)
+
+    input_ids = enc['input_ids']
+
+    with torch.no_grad():
+        outputs = model(**enc)
+        logits  = outputs.logits
+
+    # Shift: predict x_i from x_<i
+    shift_logits = logits[:, :-1, :]
+    shift_labels = input_ids[:, 1:]
+
+    log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+    token_log_probs = log_probs.gather(
+        2, shift_labels.unsqueeze(-1)
+    ).squeeze(-1)
+
+    return token_log_probs[0].tolist()
+
+
+def select_min_k_tokens(
+    token_logprobs: List[float],
+    k: int = 20,
+) -> Tuple[List[int], List[float], List[int]]:
+    """Select k% of tokens with lowest log probability (outlier tokens).
+    
+    Returns: (selected_indices, selected_logprobs, rank_order)
+    """
+    if not token_logprobs:
+        return [], [], []
+
+    # Calculate number of tokens to select
+    n_select   = max(1, math.ceil(len(token_logprobs) * k / 100))
+    rank_order = sorted(range(len(token_logprobs)), key=lambda i: token_logprobs[i])
+
+    selected_indices  = rank_order[:n_select]
+    selected_logprobs = [token_logprobs[i] for i in selected_indices]
+
+    return selected_indices, selected_logprobs, rank_order
+
+
+def min_k_prob(
+    token_logprobs: List[float],
+    k: int = 20,
+) -> float:
+    """Compute Min-K% Prob score (Eq. 1): average log prob of bottom-k% tokens.
+    
+    Higher (less negative) = likely member; lower (more negative) = likely non-member.
+    """
+    if not token_logprobs:
+        return 0.0
+
+    _, selected_logprobs, _ = select_min_k_tokens(token_logprobs, k=k)
+    return float(np.mean(selected_logprobs))
+
+
+def score_texts(
+    texts: List[str],
     model,
     tokenizer,
     k: int = 20,
-    cache_path: str = "outputs/logprobs_wikimia_len64.pkl",
-) -> pd.DataFrame:
-    
-    # Compute Min-K% Prob scores for every row in df.
-    texts  = df["text"].tolist()
-    labels = df["label"].tolist()
+    device: Optional[str] = None,
+    show_progress: bool = True,
+) -> List[Dict]:
+    """Run full Min-K% Prob pipeline on list of texts, return scores and metadata."""
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    logprobs_list = load_logprobs_cache(cache_path)
+    results = []
+    total   = len(texts)
 
-    # Cache length mismatch check — prevents silent corruption if dataset changes
-    if logprobs_list is not None and len(logprobs_list) != len(texts):
-        print(
-            f"  WARNING: Cache has {len(logprobs_list)} entries but dataset has "
-            f"{len(texts)}. Discarding cache and recomputing."
-        )
-        logprobs_list = None
+    for i, text in enumerate(texts, 1):
+        if show_progress and i % 50 == 0:
+            print(f'  scored {i:>4} / {total}')
 
-    if logprobs_list is None:
-        print(f"[score_dataset] Computing log-probs for {len(texts)} samples ...")
-        logprobs_list = []
-        for idx, text in enumerate(tqdm(texts, desc="Token log-probs")):
-            try:
-                lp = get_token_logprobs(text, model, tokenizer)
-            except (RuntimeError, ValueError, OverflowError) as e:
-                # RuntimeError: CUDA OOM or tensor issues
-                # ValueError: tokenizer encoding failures
-                # OverflowError: sequence too long for model
-                print(f"  Warning: sample {idx} failed ({type(e).__name__}: {e}). Using empty list.")
-                lp = []
-            logprobs_list.append(lp)
-        save_logprobs_cache(logprobs_list, cache_path)
+        lp    = compute_token_logprobs(text, model, tokenizer, device=device)
+        score = min_k_prob(lp, k=k)
+        _, sel, _ = select_min_k_tokens(lp, k=k)
 
-    scores = [min_k_prob(lp, k=k) for lp in logprobs_list]
+        results.append({
+            'min_k_score': score,
+            'n_tokens'   : len(lp),
+            'n_selected' : len(sel),
+        })
 
-    df_out = pd.DataFrame({
-        "text_id":     range(len(texts)),
-        "text":        texts,
-        "label":       labels,
-        "min_k_score": scores,
-    })
+    if show_progress:
+        print(f'  scored {total:>4} / {total}  ✓')
 
-    # Sanity check: member avg should be higher (less negative) than non-member avg
-    member_avg    = df_out[df_out["label"] == 1]["min_k_score"].mean()
-    nonmember_avg = df_out[df_out["label"] == 0]["min_k_score"].mean()
-    if member_avg <= nonmember_avg:
-        print(
-            f"  WARNING: member avg ({member_avg:.4f}) ≤ non-member avg ({nonmember_avg:.4f}). "
-            "Min-K% scores may be inverted — check min_k_prob() sign convention."
-        )
-
-    return df_out
+    return results

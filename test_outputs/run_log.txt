@@ -1,0 +1,123 @@
+
+============================================================
+Module 03 — Min-K% Prob Scoring
+k=20  device=cpu  smoke=True
+models   : ['fakemodel']
+lengths  : [64]
+settings : ['original', 'paraphrase']
+============================================================
+
+Model: fakemodel (fake-model)
+  Loading model ...
+  Loaded in 0.0s
+
+  combo: len=64  setting=original
+  [SMOKE] using first 4 rows
+  scoring 4 rows ...
+  [   4/4]  elapsed 0s  ETA 0s
+  saved: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\mink_scores_fakemodel_len64_original.csv
+  cached logprobs: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\logprobs\logprobs_fakemodel_len64_original.pkl
+  ERROR scoring fakemodel len=64 original:
+Traceback (most recent call last):
+  File "C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\scripts\run_03_mink.py", line 206, in main
+    _log(f'  member_mean={m1:.4f}  non_member_mean={m0:.4f}  {direction}', log_fh)
+  File "C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\scripts\run_03_mink.py", line 28, in _log
+    print(msg, flush=True)
+  File "C:\Users\Hanna\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2713' in position 48: character maps to <undefined>
+
+
+  combo: len=64  setting=paraphrase
+  [SMOKE] using first 4 rows
+  scoring 4 rows ...
+  [   4/4]  elapsed 0s  ETA 0s
+  saved: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\mink_scores_fakemodel_len64_paraphrase.csv
+  cached logprobs: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\logprobs\logprobs_fakemodel_len64_paraphrase.pkl
+  ERROR scoring fakemodel len=64 paraphrase:
+Traceback (most recent call last):
+  File "C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\scripts\run_03_mink.py", line 206, in main
+    _log(f'  member_mean={m1:.4f}  non_member_mean={m0:.4f}  {direction}', log_fh)
+  File "C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\scripts\run_03_mink.py", line 28, in _log
+    print(msg, flush=True)
+  File "C:\Users\Hanna\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u26a0' in position 48: character maps to <undefined>
+
+
+  GPU cache cleared.
+
+============================================================
+DONE.  completed=0  skipped=0  failed=2
+FAILED: ['mink_scores_fakemodel_len64_original.csv', 'mink_scores_fakemodel_len64_paraphrase.csv']
+============================================================
+
+============================================================
+Module 03 — Min-K% Prob Scoring
+k=20  device=cpu  smoke=True
+models   : ['fakemodel']
+lengths  : [64]
+settings : ['original', 'paraphrase']
+============================================================
+
+Model: fakemodel (fake-model)
+  SKIP (exists): mink_scores_fakemodel_len64_original.csv
+  SKIP (exists): mink_scores_fakemodel_len64_paraphrase.csv
+  All combos done for fakemodel. Skipping model load.
+
+============================================================
+DONE.  completed=0  skipped=2  failed=0
+============================================================
+
+============================================================
+Module 03 — Min-K% Prob Scoring
+k=20  device=cpu  smoke=True
+models   : ['fakemodel']
+lengths  : [64]
+settings : ['original', 'paraphrase']
+============================================================
+
+Model: fakemodel (fake-model)
+  Loading model ...
+  Loaded in 0.0s
+
+  combo: len=64  setting=original
+  [SMOKE] using first 4 rows
+  scoring 4 rows ...
+  [   4/4]  elapsed 0s  ETA 0s
+  saved: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\mink_scores_fakemodel_len64_original.csv
+  cached logprobs: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\logprobs\logprobs_fakemodel_len64_original.pkl
+  member_mean=-7.8080  non_member_mean=-7.5333  unexpected direction
+
+  combo: len=64  setting=paraphrase
+  [SMOKE] using first 4 rows
+  scoring 4 rows ...
+  [   4/4]  elapsed 0s  ETA 0s
+  saved: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\mink_scores_fakemodel_len64_paraphrase.csv
+  cached logprobs: C:\Users\Hanna\Documents\GitHub\ai project\ai-final-project\test_outputs\logprobs\logprobs_fakemodel_len64_paraphrase.pkl
+  member_mean=-7.3768  non_member_mean=-7.7355  (member > non-member)
+
+  GPU cache cleared.
+
+============================================================
+DONE.  completed=2  skipped=0  failed=0
+============================================================
+
+============================================================
+Module 03 — Min-K% Prob Scoring
+k=20  device=cpu  smoke=True
+models   : ['fakemodel']
+lengths  : [64]
+settings : ['original', 'paraphrase']
+============================================================
+
+Model: fakemodel (fake-model)
+  SKIP (exists): mink_scores_fakemodel_len64_original.csv
+  SKIP (exists): mink_scores_fakemodel_len64_paraphrase.csv
+  All combos done for fakemodel. Skipping model load.
+
+============================================================
+DONE.  completed=0  skipped=2  failed=0
+============================================================

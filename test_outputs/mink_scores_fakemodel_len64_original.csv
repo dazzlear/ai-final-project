@@ -1,0 +1,5 @@
+text_id,text,label,min_k_score,n_tokens,n_selected
+0,The Battle of Hastings was fought on 14 October 1066 between the Norman army of William the Conqueror and an English army under King Harold II.,1,-7.7061842918396,25,5
+1,zxqvw blorple flumtrix snorkel quibble wazzle frumble.,0,-7.312704801559448,6,2
+2,Paris is the capital of France.,1,-7.909912586212158,5,1
+3,norp flizzle quork wazzle.,0,-7.753913879394531,3,1
