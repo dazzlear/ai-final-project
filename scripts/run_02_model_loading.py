@@ -64,11 +64,12 @@ def verify_model(model_name: str) -> dict:
         with torch.no_grad():
             outputs = model(input_ids)
         logits = outputs.logits
+        result['logits_vocab_dim'] = logits.shape[2]
         # Shape must be [1, seq_len, vocab_size] with no NaN/Inf
         shape_ok = (
             logits.ndim == 3
             and logits.shape[0] == 1
-            and logits.shape[2] == tokenizer.vocab_size
+            and logits.shape[2] == model.config.vocab_size
         )
         values_ok = torch.isfinite(logits).all().item()
         result['forward_pass_ok'] = bool(shape_ok and values_ok)
