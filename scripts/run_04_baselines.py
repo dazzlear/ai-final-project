@@ -14,6 +14,7 @@ import pickle
 import torch
 import pandas as pd
 from pathlib import Path
+import argparse
 
 from src.data import load_wikimia_all
 from src.baselines import (
@@ -25,10 +26,29 @@ from src.baselines import (
 )
 from src.models import load_model, get_token_logprobs
 
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--input_dir",    required=True)   # reads mink CSVs from Module 03
+    p.add_argument("--output_dir",   required=True)   # writes baseline CSVs
+    p.add_argument("--models",       nargs="+", required=True)
+    p.add_argument("--model_keys",   nargs="+", required=True)
+    p.add_argument("--lengths",      nargs="+", type=int, required=True)
+    p.add_argument("--settings",     nargs="+", default=["original"])
+    p.add_argument("--skip_existing",action="store_true")
+    p.add_argument("--smoke",        action="store_true")
+    return p.parse_args()
+
+args = parse_args()
+DRIVE_03  = args.input_dir
+DRIVE_04  = args.output_dir
+LENGTHS   = args.lengths
+SETTINGS  = args.settings
+SMOKE     = args.smoke
+MODEL_MAP = dict(zip(args.model_keys, args.models))
+
 # Configuration and paths
-DRIVE       = "/content/drive/MyDrive/ai-final-project"
-LOGPROB_DIR = Path(f"{DRIVE}/outputs/logprobs")
-SCORE_DIR   = Path(f"{DRIVE}/outputs/scores")
+LOGPROB_DIR = Path(DRIVE_03) / "logprobs"
+SCORE_DIR   = Path(DRIVE_04) / "scores"
 SCORE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Mapping of target models to their smaller reference models for calibration

@@ -1,62 +1,56 @@
-"""Generate Table 1 — AUC comparison across methods and models.
+"""Generate Table 1 — AUC comparison across methods and models."""
 
-Reads scores pkl files and writes:
-    outputs/table1_results.csv   — machine-readable AUC table
-    outputs/table1.tex           — LaTeX tabular block (ready to paste)
-
-"""
+import argparse
 import csv
-import pickle
+import pandas as pd
 from pathlib import Path
 
-from src.metrics import compute_auc, tpr_at_fpr
+from src.metrics import compute_auc
 
-# Configuration and paths
-DRIVE     = "/content/drive/MyDrive/ai-final-project"
-SCORE_DIR = Path(f"{DRIVE}/outputs/scores")
-OUT_DIR   = Path(f"{DRIVE}/outputs")
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--input_dir",  required=True)   # reads evaluation_summary.csv
+    p.add_argument("--output_dir", required=True)   # writes outputs
+    p.add_argument("--model_keys", nargs="+", required=True)
+    return p.parse_args()
+
+args = parse_args()
+INPUT_DIR = Path(args.input_dir)
+OUT_DIR = Path(args.output_dir)
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_KEYS = args.model_keys
 
-# Target models and MIA detection methods
-MODELS  = ["pythia-2.8b", "gpt-neo-1.3B", "opt-1.3b"]
-METHODS = ["Neighbor", "PPL", "Zlib", "Lowercase", "Smaller Ref", "Min-K%"]
+# Load evaluation summary
+eval_path = INPUT_DIR / "evaluation_summary.csv"
+if not eval_path.exists():
+    raise FileNotFoundError(f"Evaluation summary not found: {eval_path}")
 
-# Load scores from pickle files
-data = {}
-for model in MODELS:
-    path = SCORE_DIR / f"scores_{model}.pkl"
-    if path.exists():
-        data[model] = pickle.load(open(path, "rb"))
-    else:
-        print(f"WARNING: {path} not found — skipping {model}")
+df = pd.read_csv(eval_path)
 
-# Compute AUC for each (method, model) pair
-rows = {}          # rows[method][model] = auc value
-for method in METHODS:
+# Build table: rows=methods, cols=models
+rows = {}
+for method in df["method"].unique():
     rows[method] = {}
-    for model in MODELS:
-        if model not in data:
-            continue
-        sc  = data[model]["scores"].get(method, [])
-        lbl = data[model]["labels"]
-        if sc:
-            rows[method][model] = compute_auc(sc, lbl)
+    for model_key in MODEL_KEYS:
+        subset = df[(df["method"] == method) & (df["model"] == model_key)]
+        if not subset.empty:
+            rows[method][model_key] = subset["auc"].mean()
 
-# Calculate per-method averages across all models
-for method in METHODS:
+# Per-method averages
+for method in rows:
     vals = list(rows[method].values())
     rows[method]["Avg."] = sum(vals) / len(vals) if vals else 0.0
 
-# Identify best AUC for each column (for bolding in LaTeX output)
-cols = MODELS + ["Avg."]
-best = {col: max(rows[m].get(col, 0.0) for m in METHODS) for col in cols}
+# Find column-wise best
+cols = MODEL_KEYS + ["Avg."]
+best = {col: max(rows[m].get(col, 0.0) for m in rows) for col in cols}
 
-# Save results to CSV file
+# Save CSV
 csv_path = OUT_DIR / "table1_results.csv"
 with open(csv_path, "w", newline="") as f:
     writer = csv.writer(f)
-    writer.writerow(["method"] + MODELS + ["avg"])
-    for method in METHODS:
+    writer.writerow(["method"] + MODEL_KEYS + ["avg"])
+    for method in sorted(rows.keys()):
         row = [method]
         for col in cols:
             val = rows[method].get(col, None)
@@ -64,15 +58,15 @@ with open(csv_path, "w", newline="") as f:
         writer.writerow(row)
 print(f"Saved → {csv_path}")
 
-# Generate and save LaTeX tabular for publication
-col_header = " & ".join(["Pythia-2.8B", "GPT-Neo-1.3B", "OPT-1.3b", "Avg."])
+# Generate LaTeX
+col_header = " & ".join(MODEL_KEYS + ["Avg."])
 lines = [
-    r"\begin{tabular}{lcccc}",
+    r"\begin{tabular}{l" + "c" * len(cols) + "}",
     r"\toprule",
     f"Method & {col_header} \\\\",
     r"\midrule",
 ]
-for method in METHODS:
+for method in sorted(rows.keys()):
     cells = []
     for col in cols:
         val = rows[method].get(col, None)
