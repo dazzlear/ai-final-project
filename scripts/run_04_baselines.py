@@ -64,7 +64,11 @@ def load_logprobs(logprob_dir, model_key, length, setting, texts, model, tok):
         cache = Path(logprob_dir) / f"logprobs_{model_key}_len{length}_{setting}.pkl"
         if cache.exists():
             print(f"    Loading cached logprobs: {cache.name}")
-            return pickle.load(open(cache, "rb"))
+            data = pickle.load(open(cache, "rb"))
+            # Module 03 stores as {"logprobs": [[float, ...], ...]}
+            if isinstance(data, dict) and "logprobs" in data:
+                return data["logprobs"]
+            return data  # already a list of lists
 
     print(f"    Computing logprobs (no cache found) …")
     return [get_token_logprobs(t, model, tok) for t in texts]
