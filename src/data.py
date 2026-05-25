@@ -48,6 +48,26 @@ def load_wikimia(length: int = 64) -> pd.DataFrame:
     return df[["text_id", "text", "label"]]
 
 
+def load_wikimia_all(lengths=(32, 64, 128, 256)) -> pd.DataFrame:
+    """Load and concatenate all WikiMIA length splits into one DataFrame.
+    
+    Args:
+        lengths: Tuple of length values to load (default: all available).
+    
+    Returns:
+        Concatenated DataFrame with 'length' column tracking split origin.
+    """
+    frames = []
+    offset = 0
+    for length in lengths:
+        df = load_wikimia(length=length)
+        df.insert(1, "length", length)           # track which split each row came from
+        df["text_id"] = range(offset, offset + len(df))   # avoid duplicate text_ids
+        offset += len(df)
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True)
+
+
 def inspect_wikimia(df: pd.DataFrame) -> None:
     """Print dataset statistics and label distribution."""
     print("\nDATASET PREVIEW")
