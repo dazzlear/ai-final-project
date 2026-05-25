@@ -1,10 +1,3 @@
-# REFERENCE ONLY — original paper implementation (Shi et al., 2024)
-# Do not import from this file. It conflicts with src/ conventions:
-#   - load_model() signature differs from src/models.py
-#   - Min-K% score is negated (higher = non-member, opposite of src/methods.py)
-#   - Requires OpenAI API key for GPT-3 experiments
-# Kept for cross-referencing paper results only.
-
 import logging
 logging.basicConfig(level='ERROR')
 import numpy as np
@@ -16,8 +9,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
 import numpy as np
 from datasets import load_dataset
-from reference.options_original import Options
-from reference.eval_original import *
+from options import Options
+from eval import *
 
 
 def load_model(name1, name2):
