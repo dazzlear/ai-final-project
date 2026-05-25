@@ -61,7 +61,7 @@ def parse_args():
 def load_logprobs(logprob_dir, model_key, length, setting, texts, model, tok):
     """Load cached logprobs if available, otherwise recompute."""
     if logprob_dir is not None:
-        cache = Path(logprob_dir) / f"lp_{model_key}_len{length}_{setting}.pkl"
+        cache = Path(logprob_dir) / f"logprobs_{model_key}_len{length}_{setting}.pkl"
         if cache.exists():
             print(f"    Loading cached logprobs: {cache.name}")
             return pickle.load(open(cache, "rb"))
