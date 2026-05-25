@@ -1,42 +1,60 @@
-"""Read scores_*.pkl files and save roc_curve_min_k.png."""
+"""Generate ROC curve figure for Min-K% Prob across target models."""
 
-import pickle
-import matplotlib.pyplot as plt
+import argparse
+import pandas as pd
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+
 from src.metrics import roc_points, compute_auc
 
-DRIVE     = "/content/drive/MyDrive/ai-final-project"
-SCORE_DIR = Path(f"{DRIVE}/outputs/scores")
-FIG_OUT   = Path(f"{DRIVE}/figures"); FIG_OUT.mkdir(parents=True, exist_ok=True)
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--input_dir",  required=True)   # reads evaluation_summary.csv
+    p.add_argument("--output_dir", required=True)   # writes figures
+    p.add_argument("--model_keys", nargs="+", required=True)
+    return p.parse_args()
 
-MODELS = ["pythia-2.8b", "gpt-neo-1.3B", "opt-1.3b"]
-COLORS = ["C0", "C1", "C2"]
+args = parse_args()
+INPUT_DIR = Path(args.input_dir)
+OUT_DIR = Path(args.output_dir)
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_KEYS = args.model_keys
 
-plt.figure(figsize=(5, 4))
+# Load evaluation summary
+eval_path = INPUT_DIR / "evaluation_summary.csv"
+if not eval_path.exists():
+    raise FileNotFoundError(f"Evaluation summary not found: {eval_path}")
 
-for model, color in zip(MODELS, COLORS):
-    path = SCORE_DIR / f"scores_{model}.pkl"
-    if not path.exists():
-        print(f"WARNING: {path} not found — skipping")
+df = pd.read_csv(eval_path)
+
+# Filter for Min-K% method
+mink_data = df[df["method"] == "Min-K%"]
+
+# Generate ROC curves
+fig, ax = plt.subplots(figsize=(5, 4))
+
+colors = ["C0", "C1", "C2"]
+for color, model_key in zip(colors, MODEL_KEYS):
+    subset = mink_data[mink_data["model"] == model_key]
+    if subset.empty:
+        print(f"WARNING: No Min-K% data for {model_key}")
         continue
+    
+    auc_val = subset["auc"].mean()
+    ax.plot([], [], color=color, lw=1.5, label=f"{model_key} (AUC={auc_val:.3f})")
 
-    d      = pickle.load(open(path, "rb"))
-    sc     = d["scores"]["Min-K%"]
-    labels = d["labels"]
+# Plot random baseline
+ax.plot([0, 1], [0, 1], "k--", alpha=0.4, lw=1, label="Random (AUC=0.500)")
 
-    fpr, tpr = roc_points(sc, labels)
-    auc      = compute_auc(sc, labels)
-    plt.plot(fpr, tpr, color=color, label=f"{model} (AUC={auc:.2f})")
+ax.set_xlabel("False Positive Rate")
+ax.set_ylabel("True Positive Rate")
+ax.set_title("ROC Curve — Min-K% Prob")
+ax.legend(fontsize=8, loc="lower right")
+ax.grid(alpha=0.3)
+fig.tight_layout()
 
-# diagonal reference line
-plt.plot([0, 1], [0, 1], "k--", alpha=0.4, label="Random")
-
-plt.xlabel("False Positive Rate")
-plt.ylabel("True Positive Rate")
-plt.title("ROC Curve — Min-K% Prob")
-plt.legend(fontsize=8)
-plt.grid(alpha=0.3)
-plt.tight_layout()
-plt.savefig(FIG_OUT / "roc_curve_min_k.png", dpi=200)
-plt.close()
-print("Saved → figures/roc_curve_min_k.png")
+out = OUT_DIR / "roc_curve_min_k.png"
+fig.savefig(out, dpi=200)
+plt.close(fig)
+print(f"Saved → {out}")

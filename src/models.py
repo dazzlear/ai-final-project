@@ -3,7 +3,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Tuple, List
 
 
-def load_model(name: str) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
+def load_model(name: str, device=None) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
 
     # Load a HuggingFace causal language model and its tokenizer.
     print(f"[load_model] Loading '{name}' ...")
