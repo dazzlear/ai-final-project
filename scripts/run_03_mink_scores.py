@@ -20,7 +20,17 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / 'src'))
 
 from models  import load_model
-from methods import compute_token_logprobs, min_k_prob, select_min_k_tokens
+from methods import min_k_prob, select_min_k_tokens
+import log_probability_compute_auto as auto_impl
+import log_probability_compute_manual as manual_impl
+
+# Maps --implementation choices to the modules providing
+# compute_token_logprobs(). Both expose an identical signature, so the
+# rest of the pipeline doesn't need to know which one is active.
+_LOGPROB_IMPLS = {
+    'auto'  : auto_impl,
+    'manual': manual_impl,
+}
 
 
 def _log(msg: str, log_fh=None):
@@ -36,6 +46,7 @@ def _score_dataframe(
     tokenizer,
     k: int,
     device: str,
+    compute_token_logprobs,
     log_fh=None,
 ) -> pd.DataFrame:
     """Score all rows, compute Min-K% scores, return augmented DataFrame."""
@@ -88,6 +99,12 @@ def main():
                         help='Dataset settings to process')
     parser.add_argument('--k',            type=int, default=20,
                         help='Min-K%% percentage (default: 20)')
+    parser.add_argument('--implementation', choices=['auto', 'manual'], default='auto',
+                        help='Log-probability computation backend. "auto" uses '
+                             'torch.nn.functional.log_softmax / Tensor.gather() '
+                             '(fast, for full dataset runs). "manual" computes '
+                             'softmax/log/gather with plain Python loops '
+                             '(slow, for smoke tests and verification only).')
     parser.add_argument('--skip_existing', action='store_true',
                         help='Skip combos whose output CSV already exists')
     parser.add_argument('--cache_logprobs', action='store_true',
@@ -102,6 +119,9 @@ def main():
 
     model_map = dict(zip(args.model_keys, args.models))
 
+    # Resolve the log-probability implementation once for the whole run
+    compute_token_logprobs = _LOGPROB_IMPLS[args.implementation].compute_token_logprobs
+
     # Create output directories
     out_dir      = Path(args.output_dir)
     logprobs_dir = out_dir / 'logprobs'
@@ -115,7 +135,8 @@ def main():
     with open(log_path, 'a') as log_fh:
         _log(f'\n{"="*60}', log_fh)
         _log(f'Module 03 — Min-K% Prob Scoring', log_fh)
-        _log(f'k={args.k}  device={device}  smoke={args.smoke}', log_fh)
+        _log(f'k={args.k}  device={device}  smoke={args.smoke}  '
+             f'implementation={args.implementation}', log_fh)
         _log(f'models   : {list(model_map.keys())}', log_fh)
         _log(f'lengths  : {args.lengths}', log_fh)
         _log(f'settings : {args.settings}', log_fh)
@@ -185,7 +206,9 @@ def main():
                     _log(f'  scoring {len(df_work)} rows ...', log_fh)
                     df_scored, all_lp = _score_dataframe(
                         df_work, model, tokenizer,
-                        k=args.k, device=device, log_fh=log_fh,
+                        k=args.k, device=device,
+                        compute_token_logprobs=compute_token_logprobs,
+                        log_fh=log_fh,
                     )
 
                     # Save scores CSV
