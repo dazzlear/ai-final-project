@@ -12,6 +12,7 @@ import time
 import traceback
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -20,7 +21,69 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / 'src'))
 
 from models  import load_model
-from methods import compute_token_logprobs, min_k_prob, select_min_k_tokens
+from methods import min_k_prob, select_min_k_tokens
+import log_probability_compute_auto as auto_impl
+import log_probability_compute_manual as manual_impl
+
+# Maps --implementation choices to the modules providing
+# compute_token_logprobs(). Both expose an identical signature, so the
+# rest of the pipeline doesn't need to know which one is active.
+_LOGPROB_IMPLS = {
+    'auto'  : auto_impl,
+    'manual': manual_impl,
+}
+
+
+# ----------------------------------------------------------------------
+# Input resolution (Module 01 / Module 1B contract)
+# ----------------------------------------------------------------------
+def resolve_input(input_dir: str, length: int, setting: str) -> tuple[Path, str]:
+    """Resolve the input CSV path and text column for a given setting.
+
+    setting='original'   -> wikimia_length{N}_processed.csv,   text column 'text'
+    setting='paraphrase' -> wikimia_length{N}_paraphrased.csv, text column 'paraphrase_text'
+
+    Raises FileNotFoundError / ValueError instead of silently falling back
+    to the original text when the paraphrase file or column is missing.
+    """
+    if setting == 'original':
+        input_file  = f'wikimia_length{length}_processed.csv'
+        text_column = 'text'
+    elif setting == 'paraphrase':
+        input_file  = f'wikimia_length{length}_paraphrased.csv'
+        text_column = 'paraphrase_text'
+    else:
+        raise ValueError(f"Unknown setting: {setting!r}. Must be 'original' or 'paraphrase'.")
+
+    in_csv = Path(input_dir) / input_file
+    if not in_csv.exists():
+        raise FileNotFoundError(
+            f"Required input file not found for setting={setting!r}: {in_csv}. "
+            f"No fallback to original text is allowed."
+        )
+
+    return in_csv, text_column
+
+
+def load_scoring_input(input_dir: str, length: int, setting: str) -> pd.DataFrame:
+    """Load and normalize the input rows for a given length/setting.
+
+    Returns a DataFrame with columns: text_id, text, label.
+    Raises if the required text column is missing — never falls back.
+    """
+    in_csv, text_column = resolve_input(input_dir, length, setting)
+    df_in = pd.read_csv(in_csv)
+
+    if text_column not in df_in.columns:
+        raise ValueError(
+            f"Expected column '{text_column}' not found in {in_csv} "
+            f"(setting={setting!r}). Available columns: {df_in.columns.tolist()}. "
+            f"No silent fallback to 'text' is allowed."
+        )
+
+    df_work = df_in[['text_id', text_column, 'label']].copy()
+    df_work = df_work.rename(columns={text_column: 'text'})
+    return df_work
 
 
 def _log(msg: str, log_fh=None):
@@ -36,6 +99,7 @@ def _score_dataframe(
     tokenizer,
     k: int,
     device: str,
+    compute_token_logprobs,
     log_fh=None,
 ) -> pd.DataFrame:
     """Score all rows, compute Min-K% scores, return augmented DataFrame."""
@@ -71,10 +135,91 @@ def _score_dataframe(
     return out, all_lp
 
 
+def _compare_implementations(
+    df_in: pd.DataFrame,
+    model,
+    tokenizer,
+    k: int,
+    device: str,
+    n_rows: int = 10,
+    log_fh=None,
+) -> pd.DataFrame:
+    """Run BOTH the auto and manual log-probability implementations on the
+    same sample rows and return a side-by-side comparison DataFrame.
+
+    For each row this records:
+      - the Min-K% score under each implementation,
+      - whether the per-token log-probabilities match (within tolerance),
+      - whether the resulting Min-K% scores match (within tolerance).
+
+    NOTE on tolerances: the "auto" implementation operates on float32
+    torch tensors (torch.nn.functional.log_softmax), while the "manual"
+    implementation upcasts logits to float64 Python floats before doing
+    softmax/log/gather with plain math. Summing ~50k-dim vocab logits in
+    float32 vs float64 introduces small accumulation differences on the
+    order of 1e-3 in log-probability space. atol=1e-2 / rtol=1e-3 reflects
+    "match within float32 numerical precision", not bit-identical match.
+    """
+    LOGPROB_ATOL = 1e-2
+    LOGPROB_RTOL = 1e-3
+    SCORE_ATOL   = 1e-2
+    SCORE_RTOL   = 1e-3
+
+    df_smoke = df_in.head(n_rows).copy()
+    rows = []
+
+    for _, row in df_smoke.iterrows():
+        text = row['text']
+
+        lp_auto   = auto_impl.compute_token_logprobs(text, model, tokenizer, device=device)
+        lp_manual = manual_impl.compute_token_logprobs(text, model, tokenizer, device=device)
+
+        lp_auto_arr   = np.asarray(lp_auto,   dtype=np.float64)
+        lp_manual_arr = np.asarray(lp_manual, dtype=np.float64)
+
+        same_len = len(lp_auto_arr) == len(lp_manual_arr)
+        max_abs_diff = (float(np.max(np.abs(lp_auto_arr - lp_manual_arr)))
+                        if same_len else float('nan'))
+        logprobs_match = bool(
+            same_len and np.allclose(lp_auto_arr, lp_manual_arr,
+                                      atol=LOGPROB_ATOL, rtol=LOGPROB_RTOL)
+        )
+
+        score_auto   = min_k_prob(lp_auto,   k=k)
+        score_manual = min_k_prob(lp_manual, k=k)
+        _, sel_auto,   _ = select_min_k_tokens(lp_auto,   k=k)
+        _, sel_manual, _ = select_min_k_tokens(lp_manual, k=k)
+
+        score_match = bool(
+            np.isclose(score_auto, score_manual, atol=SCORE_ATOL, rtol=SCORE_RTOL)
+        )
+
+        rows.append({
+            'text_id'             : row['text_id'],
+            'label'               : row['label'],
+            'n_tokens'            : len(lp_auto_arr),
+            'n_selected_auto'     : len(sel_auto),
+            'n_selected_manual'   : len(sel_manual),
+            'min_k_score_auto'    : score_auto,
+            'min_k_score_manual'  : score_manual,
+            'score_abs_diff'      : abs(score_auto - score_manual),
+            'score_match'         : score_match,
+            'logprob_max_abs_diff': max_abs_diff,
+            'logprobs_match'      : logprobs_match,
+        })
+
+        _log(f"  text_id={row['text_id']}  "
+             f"auto={score_auto:.6f}  manual={score_manual:.6f}  "
+             f"diff={abs(score_auto - score_manual):.2e}  "
+             f"logprobs_match={logprobs_match}  score_match={score_match}", log_fh)
+
+    return pd.DataFrame(rows)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Module 03 — Min-K% Prob Scoring')
     parser.add_argument('--input_dir',    required=True,
-                        help='Path to DRIVE_01 (processed dataset CSVs)')
+                        help='Path to DRIVE_01 (processed/paraphrased dataset CSVs)')
     parser.add_argument('--output_dir',   required=True,
                         help='Path to DRIVE_03 (Min-K% score output)')
     parser.add_argument('--models',       nargs='+', required=True,
@@ -88,17 +233,45 @@ def main():
                         help='Dataset settings to process')
     parser.add_argument('--k',            type=int, default=20,
                         help='Min-K%% percentage (default: 20)')
+    parser.add_argument('--implementation', choices=['auto', 'manual'], default='auto',
+                        help='Log-probability computation backend. "auto" uses '
+                             'torch.nn.functional.log_softmax / Tensor.gather() '
+                             '(fast, REQUIRED for full dataset runs). "manual" computes '
+                             'softmax/log/gather with plain Python loops '
+                             '(slow, for smoke tests and verification only).')
     parser.add_argument('--skip_existing', action='store_true',
                         help='Skip combos whose output CSV already exists')
     parser.add_argument('--cache_logprobs', action='store_true',
                         help='Save raw log-prob lists as .pkl files')
     parser.add_argument('--smoke',         action='store_true',
                         help='Run on first 10 rows only (smoke test)')
+    parser.add_argument('--compare_implementations', action='store_true',
+                        help='Run BOTH auto and manual implementations on a small '
+                             'sample of rows and write a side-by-side comparison '
+                             'CSV (labeled "smoke_test_comparison"). This checks '
+                             'for an exact match of per-token log-probabilities '
+                             'and Min-K%% scores between implementations. '
+                             'When set, this overrides the normal scoring run '
+                             '(--implementation is ignored).')
+    parser.add_argument('--smoke_n',       type=int, default=10,
+                        help='Number of rows to use for --compare_implementations '
+                             '(default: 10)')
     args = parser.parse_args()
 
     # Validate model args match
     if len(args.models) != len(args.model_keys):
         parser.error('--models and --model_keys must have the same number of entries')
+
+    # Full dataset runs must use the "auto" log-probability backend.
+    # "manual" is only intended for the --compare_implementations smoke
+    # test (which ignores --implementation entirely). Fail fast instead
+    # of silently producing a slow/non-standard run.
+    if not args.compare_implementations and not args.smoke and args.implementation != 'auto':
+        parser.error(
+            "--implementation must be 'auto' for full dataset runs "
+            "(got 'manual'). Use --compare_implementations or --smoke "
+            "if you need the manual backend for verification."
+        )
 
     model_map = dict(zip(args.model_keys, args.models))
 
@@ -112,10 +285,99 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     log_path = out_dir / 'run_log.txt'
+
+    # ------------------------------------------------------------------
+    # MODE 1: Smoke-test comparison of auto vs manual implementations.
+    # Runs both implementations on the same sample rows for each
+    # model x length x setting combo, writes a side-by-side comparison
+    # CSV, and exits without running the normal scoring loop.
+    # ------------------------------------------------------------------
+    if args.compare_implementations:
+        with open(log_path, 'a') as log_fh:
+            _log(f'\n{"="*60}', log_fh)
+            _log('Module 03 — SMOKE TEST: auto vs manual comparison', log_fh)
+            _log(f'k={args.k}  device={device}  n_rows={args.smoke_n}', log_fh)
+            _log(f'models   : {list(model_map.keys())}', log_fh)
+            _log(f'lengths  : {args.lengths}', log_fh)
+            _log(f'settings : {args.settings}', log_fh)
+            _log(f'{"="*60}', log_fh)
+
+            comparison_files = []
+            any_mismatch = False
+
+            for model_key, model_hf_id in model_map.items():
+                _log(f'\nModel: {model_key} ({model_hf_id})', log_fh)
+                try:
+                    t_load = time.time()
+                    model, tokenizer = load_model(model_hf_id, device=device)
+                    _log(f'  Loaded in {time.time() - t_load:.1f}s', log_fh)
+                except Exception as e:
+                    _log(f'  ERROR loading {model_key}: {e}', log_fh)
+                    continue
+
+                for length in args.lengths:
+                    for setting in args.settings:
+                        try:
+                            df_work = load_scoring_input(args.input_dir, length, setting)
+                        except (FileNotFoundError, ValueError) as e:
+                            _log(f'  ERROR: {e}', log_fh)
+                            continue
+
+                        try:
+                            _log(f'\n  combo: len={length}  setting={setting}  '
+                                 f'(n={min(args.smoke_n, len(df_work))} rows)', log_fh)
+
+                            df_cmp = _compare_implementations(
+                                df_work, model, tokenizer,
+                                k=args.k, device=device,
+                                n_rows=args.smoke_n, log_fh=log_fh,
+                            )
+
+                            out_csv = out_dir / (
+                                f'smoke_test_comparison_{model_key}_len{length}_{setting}.csv'
+                            )
+                            df_cmp.to_csv(out_csv, index=False)
+                            _log(f'  saved: {out_csv}', log_fh)
+                            comparison_files.append(out_csv.name)
+
+                            n_score_mismatch   = int((~df_cmp['score_match']).sum())
+                            n_logprob_mismatch = int((~df_cmp['logprobs_match']).sum())
+                            if n_score_mismatch or n_logprob_mismatch:
+                                any_mismatch = True
+                            _log(f'  RESULT: score_mismatches={n_score_mismatch}  '
+                                 f'logprob_mismatches={n_logprob_mismatch}', log_fh)
+
+                        except Exception:
+                            _log(f'  ERROR comparing {model_key} len={length} {setting}:', log_fh)
+                            _log(traceback.format_exc(), log_fh)
+                            any_mismatch = True
+
+                # Unload model before next model_key
+                del model, tokenizer
+                torch.cuda.empty_cache()
+                _log(f'\n  GPU cache cleared.', log_fh)
+
+            _log(f'\n{"="*60}', log_fh)
+            _log(f'SMOKE TEST DONE.  files written: {len(comparison_files)}', log_fh)
+            if comparison_files:
+                _log(f'  {comparison_files}', log_fh)
+            _log(f'overall_mismatch={any_mismatch}', log_fh)
+            _log(f'{"="*60}', log_fh)
+
+        sys.exit(1 if any_mismatch else 0)
+
+    # ------------------------------------------------------------------
+    # MODE 2: Normal scoring run (single implementation, always "auto").
+    # ------------------------------------------------------------------
+
+    # Resolve the log-probability implementation once for the whole run
+    compute_token_logprobs = _LOGPROB_IMPLS[args.implementation].compute_token_logprobs
+
     with open(log_path, 'a') as log_fh:
         _log(f'\n{"="*60}', log_fh)
         _log(f'Module 03 — Min-K% Prob Scoring', log_fh)
-        _log(f'k={args.k}  device={device}  smoke={args.smoke}', log_fh)
+        _log(f'k={args.k}  device={device}  smoke={args.smoke}  '
+             f'implementation={args.implementation}', log_fh)
         _log(f'models   : {list(model_map.keys())}', log_fh)
         _log(f'lengths  : {args.lengths}', log_fh)
         _log(f'settings : {args.settings}', log_fh)
@@ -130,7 +392,10 @@ def main():
             combos_to_run = []
             for length in args.lengths:
                 for setting in args.settings:
-                    out_csv = out_dir / f'mink_scores_{model_key}_len{length}_{setting}.csv'
+                    # Tag non-"auto" implementations with a suffix so manual
+                    # and auto outputs don't collide / overwrite each other.
+                    suffix = '' if args.implementation == 'auto' else f'_{args.implementation}'
+                    out_csv = out_dir / f'mink_scores_{model_key}_len{length}_{setting}{suffix}.csv'
                     if args.skip_existing and out_csv.exists():
                         _log(f'  SKIP (exists): {out_csv.name}', log_fh)
                         skipped.append(str(out_csv.name))
@@ -157,35 +422,20 @@ def main():
             for length, setting, out_csv in combos_to_run:
                 _log(f'\n  combo: len={length}  setting={setting}', log_fh)
 
-                # Determine text column for this setting
-                text_col = 'text' if setting == 'original' else 'paraphrase_text'
-                in_csv   = Path(args.input_dir) / f'wikimia_length{length}_processed.csv'
-
-                if not in_csv.exists():
-                    _log(f'  ERROR: input file not found: {in_csv}', log_fh)
-                    failed.append(out_csv.name)
-                    continue
-
                 try:
-                    df_in = pd.read_csv(in_csv)
+                    df_work = load_scoring_input(args.input_dir, length, setting)
 
                     # Smoke test: use first 10 rows
                     if args.smoke:
-                        df_in = df_in.head(10).copy()
-                        _log(f'  [SMOKE] using first {len(df_in)} rows', log_fh)
-
-                    # Fall back to 'text' if paraphrase column missing
-                    if setting == 'paraphrase' and text_col not in df_in.columns:
-                        _log(f'  WARN: column "{text_col}" not found; falling back to "text"', log_fh)
-                        text_col = 'text'
-
-                    df_work = df_in[['text_id', text_col, 'label']].copy()
-                    df_work = df_work.rename(columns={text_col: 'text'})
+                        df_work = df_work.head(10).copy()
+                        _log(f'  [SMOKE] using first {len(df_work)} rows', log_fh)
 
                     _log(f'  scoring {len(df_work)} rows ...', log_fh)
                     df_scored, all_lp = _score_dataframe(
                         df_work, model, tokenizer,
-                        k=args.k, device=device, log_fh=log_fh,
+                        k=args.k, device=device,
+                        compute_token_logprobs=compute_token_logprobs,
+                        log_fh=log_fh,
                     )
 
                     # Save scores CSV
@@ -206,6 +456,10 @@ def main():
                     _log(f'  member_mean={m1:.4f}  non_member_mean={m0:.4f}  {direction}', log_fh)
 
                     completed.append(out_csv.name)
+
+                except (FileNotFoundError, ValueError) as e:
+                    _log(f'  ERROR: {e}', log_fh)
+                    failed.append(out_csv.name)
 
                 except Exception:
                     _log(f'  ERROR scoring {model_key} len={length} {setting}:', log_fh)
