@@ -151,7 +151,10 @@ def main():
             combos_to_run = []
             for length in args.lengths:
                 for setting in args.settings:
-                    out_csv = out_dir / f'mink_scores_{model_key}_len{length}_{setting}.csv'
+                    # Tag non-"auto" implementations with a suffix so manual
+                    # and auto outputs don't collide / overwrite each other.
+                    suffix = '' if args.implementation == 'auto' else f'_{args.implementation}'
+                    out_csv = out_dir / f'mink_scores_{model_key}_len{length}_{setting}{suffix}.csv'
                     if args.skip_existing and out_csv.exists():
                         _log(f'  SKIP (exists): {out_csv.name}', log_fh)
                         skipped.append(str(out_csv.name))
