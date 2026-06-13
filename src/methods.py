@@ -23,8 +23,8 @@ import math
 import torch
 from typing import List, Tuple, Dict, Optional
 
-from src import log_probability_compute_manual as manual_impl
-from src import log_probability_compute_auto as auto_impl
+import log_probability_compute_manual as manual_impl
+import log_probability_compute_auto as auto_impl
 
 
 _IMPLEMENTATIONS = {
