@@ -34,6 +34,58 @@ _LOGPROB_IMPLS = {
 }
 
 
+# ----------------------------------------------------------------------
+# Input resolution (Module 01 / Module 1B contract)
+# ----------------------------------------------------------------------
+def resolve_input(input_dir: str, length: int, setting: str) -> tuple[Path, str]:
+    """Resolve the input CSV path and text column for a given setting.
+
+    setting='original'   -> wikimia_length{N}_processed.csv,   text column 'text'
+    setting='paraphrase' -> wikimia_length{N}_paraphrased.csv, text column 'paraphrase_text'
+
+    Raises FileNotFoundError / ValueError instead of silently falling back
+    to the original text when the paraphrase file or column is missing.
+    """
+    if setting == 'original':
+        input_file  = f'wikimia_length{length}_processed.csv'
+        text_column = 'text'
+    elif setting == 'paraphrase':
+        input_file  = f'wikimia_length{length}_paraphrased.csv'
+        text_column = 'paraphrase_text'
+    else:
+        raise ValueError(f"Unknown setting: {setting!r}. Must be 'original' or 'paraphrase'.")
+
+    in_csv = Path(input_dir) / input_file
+    if not in_csv.exists():
+        raise FileNotFoundError(
+            f"Required input file not found for setting={setting!r}: {in_csv}. "
+            f"No fallback to original text is allowed."
+        )
+
+    return in_csv, text_column
+
+
+def load_scoring_input(input_dir: str, length: int, setting: str) -> pd.DataFrame:
+    """Load and normalize the input rows for a given length/setting.
+
+    Returns a DataFrame with columns: text_id, text, label.
+    Raises if the required text column is missing — never falls back.
+    """
+    in_csv, text_column = resolve_input(input_dir, length, setting)
+    df_in = pd.read_csv(in_csv)
+
+    if text_column not in df_in.columns:
+        raise ValueError(
+            f"Expected column '{text_column}' not found in {in_csv} "
+            f"(setting={setting!r}). Available columns: {df_in.columns.tolist()}. "
+            f"No silent fallback to 'text' is allowed."
+        )
+
+    df_work = df_in[['text_id', text_column, 'label']].copy()
+    df_work = df_work.rename(columns={text_column: 'text'})
+    return df_work
+
+
 def _log(msg: str, log_fh=None):
     """Print to stdout and optionally log file."""
     print(msg, flush=True)
@@ -167,7 +219,7 @@ def _compare_implementations(
 def main():
     parser = argparse.ArgumentParser(description='Module 03 — Min-K% Prob Scoring')
     parser.add_argument('--input_dir',    required=True,
-                        help='Path to DRIVE_01 (processed dataset CSVs)')
+                        help='Path to DRIVE_01 (processed/paraphrased dataset CSVs)')
     parser.add_argument('--output_dir',   required=True,
                         help='Path to DRIVE_03 (Min-K% score output)')
     parser.add_argument('--models',       nargs='+', required=True,
@@ -184,7 +236,7 @@ def main():
     parser.add_argument('--implementation', choices=['auto', 'manual'], default='auto',
                         help='Log-probability computation backend. "auto" uses '
                              'torch.nn.functional.log_softmax / Tensor.gather() '
-                             '(fast, for full dataset runs). "manual" computes '
+                             '(fast, REQUIRED for full dataset runs). "manual" computes '
                              'softmax/log/gather with plain Python loops '
                              '(slow, for smoke tests and verification only).')
     parser.add_argument('--skip_existing', action='store_true',
@@ -209,6 +261,17 @@ def main():
     # Validate model args match
     if len(args.models) != len(args.model_keys):
         parser.error('--models and --model_keys must have the same number of entries')
+
+    # Full dataset runs must use the "auto" log-probability backend.
+    # "manual" is only intended for the --compare_implementations smoke
+    # test (which ignores --implementation entirely). Fail fast instead
+    # of silently producing a slow/non-standard run.
+    if not args.compare_implementations and not args.smoke and args.implementation != 'auto':
+        parser.error(
+            "--implementation must be 'auto' for full dataset runs "
+            "(got 'manual'). Use --compare_implementations or --smoke "
+            "if you need the manual backend for verification."
+        )
 
     model_map = dict(zip(args.model_keys, args.models))
 
@@ -254,24 +317,13 @@ def main():
 
                 for length in args.lengths:
                     for setting in args.settings:
-                        in_csv = Path(args.input_dir) / f'wikimia_length{length}_processed.csv'
-
-                        if not in_csv.exists():
-                            _log(f'  ERROR: input file not found: {in_csv}', log_fh)
+                        try:
+                            df_work = load_scoring_input(args.input_dir, length, setting)
+                        except (FileNotFoundError, ValueError) as e:
+                            _log(f'  ERROR: {e}', log_fh)
                             continue
 
                         try:
-                            df_in = pd.read_csv(in_csv)
-
-                            text_col = 'text' if setting == 'original' else 'paraphrase_text'
-                            if setting == 'paraphrase' and text_col not in df_in.columns:
-                                _log(f'  WARN: column "{text_col}" not found; '
-                                     f'falling back to "text"', log_fh)
-                                text_col = 'text'
-
-                            df_work = df_in[['text_id', text_col, 'label']].copy()
-                            df_work = df_work.rename(columns={text_col: 'text'})
-
                             _log(f'\n  combo: len={length}  setting={setting}  '
                                  f'(n={min(args.smoke_n, len(df_work))} rows)', log_fh)
 
@@ -315,7 +367,7 @@ def main():
         sys.exit(1 if any_mismatch else 0)
 
     # ------------------------------------------------------------------
-    # MODE 2: Normal scoring run (single implementation).
+    # MODE 2: Normal scoring run (single implementation, always "auto").
     # ------------------------------------------------------------------
 
     # Resolve the log-probability implementation once for the whole run
@@ -370,30 +422,13 @@ def main():
             for length, setting, out_csv in combos_to_run:
                 _log(f'\n  combo: len={length}  setting={setting}', log_fh)
 
-                # Determine text column for this setting
-                text_col = 'text' if setting == 'original' else 'paraphrase_text'
-                in_csv   = Path(args.input_dir) / f'wikimia_length{length}_processed.csv'
-
-                if not in_csv.exists():
-                    _log(f'  ERROR: input file not found: {in_csv}', log_fh)
-                    failed.append(out_csv.name)
-                    continue
-
                 try:
-                    df_in = pd.read_csv(in_csv)
+                    df_work = load_scoring_input(args.input_dir, length, setting)
 
                     # Smoke test: use first 10 rows
                     if args.smoke:
-                        df_in = df_in.head(10).copy()
-                        _log(f'  [SMOKE] using first {len(df_in)} rows', log_fh)
-
-                    # Fall back to 'text' if paraphrase column missing
-                    if setting == 'paraphrase' and text_col not in df_in.columns:
-                        _log(f'  WARN: column "{text_col}" not found; falling back to "text"', log_fh)
-                        text_col = 'text'
-
-                    df_work = df_in[['text_id', text_col, 'label']].copy()
-                    df_work = df_work.rename(columns={text_col: 'text'})
+                        df_work = df_work.head(10).copy()
+                        _log(f'  [SMOKE] using first {len(df_work)} rows', log_fh)
 
                     _log(f'  scoring {len(df_work)} rows ...', log_fh)
                     df_scored, all_lp = _score_dataframe(
@@ -421,6 +456,10 @@ def main():
                     _log(f'  member_mean={m1:.4f}  non_member_mean={m0:.4f}  {direction}', log_fh)
 
                     completed.append(out_csv.name)
+
+                except (FileNotFoundError, ValueError) as e:
+                    _log(f'  ERROR: {e}', log_fh)
+                    failed.append(out_csv.name)
 
                 except Exception:
                     _log(f'  ERROR scoring {model_key} len={length} {setting}:', log_fh)
