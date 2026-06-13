@@ -12,6 +12,7 @@ import time
 import traceback
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -82,6 +83,70 @@ def _score_dataframe(
     return out, all_lp
 
 
+def _compare_implementations(
+    df_in: pd.DataFrame,
+    model,
+    tokenizer,
+    k: int,
+    device: str,
+    n_rows: int = 10,
+    log_fh=None,
+) -> pd.DataFrame:
+    """Run BOTH the auto and manual log-probability implementations on the
+    same sample rows and return a side-by-side comparison DataFrame.
+
+    For each row this records:
+      - the Min-K% score under each implementation,
+      - whether the per-token log-probabilities match exactly (within
+        floating-point tolerance),
+      - whether the resulting Min-K% scores match exactly.
+    """
+    df_smoke = df_in.head(n_rows).copy()
+    rows = []
+
+    for _, row in df_smoke.iterrows():
+        text = row['text']
+
+        lp_auto   = auto_impl.compute_token_logprobs(text, model, tokenizer, device=device)
+        lp_manual = manual_impl.compute_token_logprobs(text, model, tokenizer, device=device)
+
+        lp_auto_arr   = np.asarray(lp_auto,   dtype=np.float64)
+        lp_manual_arr = np.asarray(lp_manual, dtype=np.float64)
+
+        same_len = len(lp_auto_arr) == len(lp_manual_arr)
+        max_abs_diff = (float(np.max(np.abs(lp_auto_arr - lp_manual_arr)))
+                        if same_len else float('nan'))
+        logprobs_match = bool(same_len and np.allclose(lp_auto_arr, lp_manual_arr, atol=1e-5))
+
+        score_auto   = min_k_prob(lp_auto,   k=k)
+        score_manual = min_k_prob(lp_manual, k=k)
+        _, sel_auto,   _ = select_min_k_tokens(lp_auto,   k=k)
+        _, sel_manual, _ = select_min_k_tokens(lp_manual, k=k)
+
+        score_match = bool(np.isclose(score_auto, score_manual, atol=1e-6))
+
+        rows.append({
+            'text_id'             : row['text_id'],
+            'label'               : row['label'],
+            'n_tokens'            : len(lp_auto_arr),
+            'n_selected_auto'     : len(sel_auto),
+            'n_selected_manual'   : len(sel_manual),
+            'min_k_score_auto'    : score_auto,
+            'min_k_score_manual'  : score_manual,
+            'score_abs_diff'      : abs(score_auto - score_manual),
+            'score_match'         : score_match,
+            'logprob_max_abs_diff': max_abs_diff,
+            'logprobs_match'      : logprobs_match,
+        })
+
+        _log(f"  text_id={row['text_id']}  "
+             f"auto={score_auto:.6f}  manual={score_manual:.6f}  "
+             f"diff={abs(score_auto - score_manual):.2e}  "
+             f"logprobs_match={logprobs_match}  score_match={score_match}", log_fh)
+
+    return pd.DataFrame(rows)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Module 03 — Min-K% Prob Scoring')
     parser.add_argument('--input_dir',    required=True,
@@ -111,6 +176,17 @@ def main():
                         help='Save raw log-prob lists as .pkl files')
     parser.add_argument('--smoke',         action='store_true',
                         help='Run on first 10 rows only (smoke test)')
+    parser.add_argument('--compare_implementations', action='store_true',
+                        help='Run BOTH auto and manual implementations on a small '
+                             'sample of rows and write a side-by-side comparison '
+                             'CSV (labeled "smoke_test_comparison"). This checks '
+                             'for an exact match of per-token log-probabilities '
+                             'and Min-K%% scores between implementations. '
+                             'When set, this overrides the normal scoring run '
+                             '(--implementation is ignored).')
+    parser.add_argument('--smoke_n',       type=int, default=10,
+                        help='Number of rows to use for --compare_implementations '
+                             '(default: 10)')
     args = parser.parse_args()
 
     # Validate model args match
@@ -118,9 +194,6 @@ def main():
         parser.error('--models and --model_keys must have the same number of entries')
 
     model_map = dict(zip(args.model_keys, args.models))
-
-    # Resolve the log-probability implementation once for the whole run
-    compute_token_logprobs = _LOGPROB_IMPLS[args.implementation].compute_token_logprobs
 
     # Create output directories
     out_dir      = Path(args.output_dir)
@@ -132,6 +205,105 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     log_path = out_dir / 'run_log.txt'
+
+    # ------------------------------------------------------------------
+    # MODE 1: Smoke-test comparison of auto vs manual implementations.
+    # Runs both implementations on the same sample rows for each
+    # model x length x setting combo, writes a side-by-side comparison
+    # CSV, and exits without running the normal scoring loop.
+    # ------------------------------------------------------------------
+    if args.compare_implementations:
+        with open(log_path, 'a') as log_fh:
+            _log(f'\n{"="*60}', log_fh)
+            _log('Module 03 — SMOKE TEST: auto vs manual comparison', log_fh)
+            _log(f'k={args.k}  device={device}  n_rows={args.smoke_n}', log_fh)
+            _log(f'models   : {list(model_map.keys())}', log_fh)
+            _log(f'lengths  : {args.lengths}', log_fh)
+            _log(f'settings : {args.settings}', log_fh)
+            _log(f'{"="*60}', log_fh)
+
+            comparison_files = []
+            any_mismatch = False
+
+            for model_key, model_hf_id in model_map.items():
+                _log(f'\nModel: {model_key} ({model_hf_id})', log_fh)
+                try:
+                    t_load = time.time()
+                    model, tokenizer = load_model(model_hf_id, device=device)
+                    _log(f'  Loaded in {time.time() - t_load:.1f}s', log_fh)
+                except Exception as e:
+                    _log(f'  ERROR loading {model_key}: {e}', log_fh)
+                    continue
+
+                for length in args.lengths:
+                    for setting in args.settings:
+                        in_csv = Path(args.input_dir) / f'wikimia_length{length}_processed.csv'
+
+                        if not in_csv.exists():
+                            _log(f'  ERROR: input file not found: {in_csv}', log_fh)
+                            continue
+
+                        try:
+                            df_in = pd.read_csv(in_csv)
+
+                            text_col = 'text' if setting == 'original' else 'paraphrase_text'
+                            if setting == 'paraphrase' and text_col not in df_in.columns:
+                                _log(f'  WARN: column "{text_col}" not found; '
+                                     f'falling back to "text"', log_fh)
+                                text_col = 'text'
+
+                            df_work = df_in[['text_id', text_col, 'label']].copy()
+                            df_work = df_work.rename(columns={text_col: 'text'})
+
+                            _log(f'\n  combo: len={length}  setting={setting}  '
+                                 f'(n={min(args.smoke_n, len(df_work))} rows)', log_fh)
+
+                            df_cmp = _compare_implementations(
+                                df_work, model, tokenizer,
+                                k=args.k, device=device,
+                                n_rows=args.smoke_n, log_fh=log_fh,
+                            )
+
+                            out_csv = out_dir / (
+                                f'smoke_test_comparison_{model_key}_len{length}_{setting}.csv'
+                            )
+                            df_cmp.to_csv(out_csv, index=False)
+                            _log(f'  saved: {out_csv}', log_fh)
+                            comparison_files.append(out_csv.name)
+
+                            n_score_mismatch   = int((~df_cmp['score_match']).sum())
+                            n_logprob_mismatch = int((~df_cmp['logprobs_match']).sum())
+                            if n_score_mismatch or n_logprob_mismatch:
+                                any_mismatch = True
+                            _log(f'  RESULT: score_mismatches={n_score_mismatch}  '
+                                 f'logprob_mismatches={n_logprob_mismatch}', log_fh)
+
+                        except Exception:
+                            _log(f'  ERROR comparing {model_key} len={length} {setting}:', log_fh)
+                            _log(traceback.format_exc(), log_fh)
+                            any_mismatch = True
+
+                # Unload model before next model_key
+                del model, tokenizer
+                torch.cuda.empty_cache()
+                _log(f'\n  GPU cache cleared.', log_fh)
+
+            _log(f'\n{"="*60}', log_fh)
+            _log(f'SMOKE TEST DONE.  files written: {len(comparison_files)}', log_fh)
+            if comparison_files:
+                _log(f'  {comparison_files}', log_fh)
+            _log(f'overall_mismatch={any_mismatch}', log_fh)
+            _log(f'{"="*60}', log_fh)
+
+        sys.exit(1 if any_mismatch else 0)
+
+    # ------------------------------------------------------------------
+    # MODE 2: Normal scoring run (single implementation).
+    # ------------------------------------------------------------------
+
+    # Resolve the log-probability implementation once for the whole run
+    compute_token_logprobs = _LOGPROB_IMPLS[args.implementation].compute_token_logprobs
+
     with open(log_path, 'a') as log_fh:
         _log(f'\n{"="*60}', log_fh)
         _log(f'Module 03 — Min-K% Prob Scoring', log_fh)
