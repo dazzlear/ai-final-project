@@ -71,6 +71,10 @@ def main():
                     continue
                 df_base = pd.read_csv(base_path)
 
+                 # ── FIX: use labels from baseline CSV, not mink CSV ──
+                base_labels = df_base["label"].tolist()
+                # ────────────────────────────────────────────────────
+
                 for method in BASELINE_METHODS:
                     if method not in df_base.columns:
                         print(f"WARNING: column '{method}' missing in {base_path.name}")
@@ -135,4 +139,4 @@ def main():
             print(f"  {method:<14}  avg AUC={df_m['auc'].mean():.3f}  avg TPR@5%={df_m['tpr_at_5fpr'].mean():.3f}")
 
 if __name__ == "__main__":
-    main()
+    main()  
