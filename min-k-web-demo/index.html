@@ -242,11 +242,8 @@
                         <h2 class="text-xl font-bold text-white">AUC / TPR@5%FPR by method</h2>
                         <span class="ml-2 text-[10px] font-mono font-bold uppercase tracking-widest text-blue-300 border border-blue-500/30 bg-blue-500/10 px-3 py-1 rounded-full whitespace-nowrap hidden sm:inline-block">Table 1</span>
                     </div>
-                    <div class="border border-dashed border-white/10 bg-black/10 rounded-xl p-16 flex flex-col items-center justify-center text-center relative z-10">
-                        <p class="text-slate-400 text-sm leading-relaxed">
-                            No <code class="px-1.5 py-0.5 rounded text-slate-300 font-mono text-[0.85em] bg-white/5 border border-white/10">outputs/table1_results.csv</code> found yet.<br>
-                            Run the evaluation step of the pipeline to generate it, then refresh this page.
-                        </p>
+                    <div id="dashboardTable1Slot" class="border border-dashed border-white/10 bg-black/10 rounded-xl p-8 text-center relative z-10 text-slate-400 text-sm">
+                        Loading table1_results.csv...
                     </div>
                 </div>
 
@@ -263,11 +260,8 @@
                             <h2 class="text-xl font-bold text-white">ROC — Min-K% Prob</h2>
                             <span class="ml-auto text-[10px] font-mono font-bold uppercase tracking-widest text-emerald-300 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 rounded-full whitespace-nowrap">Curve</span>
                         </div>
-                        <div class="border border-dashed border-white/10 bg-black/10 rounded-xl p-12 flex flex-col items-center justify-center text-center min-h-[180px] relative z-10">
-                            <p class="text-slate-400 text-sm leading-relaxed">
-                                No <code class="px-1.5 py-0.5 rounded text-slate-300 font-mono text-[0.85em] bg-white/5 border border-white/10">figures/roc_curve_min_k.png</code> found yet.<br>
-                                Generate the ROC curve in the evaluation step and place it under <code class="px-1.5 py-0.5 rounded text-slate-300 font-mono text-[0.85em] bg-white/5 border border-white/10">figures/</code>.
-                            </p>
+                        <div id="dashboardRocSlot" class="border border-dashed border-white/10 bg-black/10 rounded-xl p-8 flex flex-col items-center justify-center text-center min-h-[180px] relative z-10 text-slate-400 text-sm">
+                            Loading roc_curve_min_k.png...
                         </div>
                     </div>
 
@@ -281,10 +275,8 @@
                             <h2 class="text-xl font-bold text-white">Evaluation summary</h2>
                             <span class="ml-auto text-[10px] font-mono font-bold uppercase tracking-widest text-indigo-300 border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 rounded-full whitespace-nowrap">Summary</span>
                         </div>
-                        <div class="border border-dashed border-white/10 bg-black/10 rounded-xl p-12 flex flex-col items-center justify-center text-center min-h-[180px] relative z-10">
-                            <p class="text-slate-400 text-sm leading-relaxed">
-                                No <code class="px-1.5 py-0.5 rounded text-slate-300 font-mono text-[0.85em] bg-white/5 border border-white/10">outputs/evaluation_summary.csv</code> found yet.
-                            </p>
+                        <div id="dashboardSummarySlot" class="border border-dashed border-white/10 bg-black/10 rounded-xl p-8 text-center min-h-[180px] relative z-10 text-slate-400 text-sm">
+                            Loading evaluation_summary.csv...
                         </div>
                     </div>
 
