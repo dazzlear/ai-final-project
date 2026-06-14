@@ -32,6 +32,11 @@ const DOM = {
     tabDash:          document.getElementById('tabDash'),
     viewInteractive:  document.getElementById('viewInteractive'),
     viewDashboard:    document.getElementById('viewDashboard'),
+
+    // Results Dashboard
+    dashboardTable1Slot:  document.getElementById('dashboardTable1Slot'),
+    dashboardSummarySlot: document.getElementById('dashboardSummarySlot'),
+    dashboardRocSlot:     document.getElementById('dashboardRocSlot'),
 };
 
 const STATE = { resultsData: [] };
