@@ -7,11 +7,16 @@ and writes evaluation_summary.csv.
 """
 import argparse
 import csv
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 
 from src.metrics import compute_auc, tpr_at_fpr
+
+
 
 BASELINE_METHODS = ["PPL", "Zlib", "Lowercase", "Neighbor", "Smaller Ref"]
 

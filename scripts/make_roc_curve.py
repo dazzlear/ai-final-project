@@ -36,7 +36,7 @@ fig, ax = plt.subplots(figsize=(5, 4))
 
 colors = ["C0", "C1", "C2"]
 for color, model_key in zip(colors, MODEL_KEYS):
-    subset = mink_data[mink_data["model"] == model_key]
+    subset = mink_data[mink_data["model_key"] == model_key]
     if subset.empty:
         print(f"WARNING: No Min-K% data for {model_key}")
         continue
