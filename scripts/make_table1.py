@@ -2,25 +2,27 @@
 
 import argparse
 import csv
-import pandas as pd
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pandas as pd
 from src.metrics import compute_auc
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--input_dir",  required=True)   # reads evaluation_summary.csv
-    p.add_argument("--output_dir", required=True)   # writes outputs
+    p.add_argument("--input_dir",  required=True)
+    p.add_argument("--output_dir", required=True)
     p.add_argument("--model_keys", nargs="+", required=True)
     return p.parse_args()
 
 args = parse_args()
-INPUT_DIR = Path(args.input_dir)
-OUT_DIR = Path(args.output_dir)
+INPUT_DIR  = Path(args.input_dir)
+OUT_DIR    = Path(args.output_dir)
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_KEYS = args.model_keys
 
-# Load evaluation summary
 eval_path = INPUT_DIR / "evaluation_summary.csv"
 if not eval_path.exists():
     raise FileNotFoundError(f"Evaluation summary not found: {eval_path}")
@@ -32,7 +34,7 @@ rows = {}
 for method in df["method"].unique():
     rows[method] = {}
     for model_key in MODEL_KEYS:
-        subset = df[(df["method"] == method) & (df["model"] == model_key)]
+        subset = df[(df["method"] == method) & (df["model_key"] == model_key)]  # ✅ fixed
         if not subset.empty:
             rows[method][model_key] = subset["auc"].mean()
 
