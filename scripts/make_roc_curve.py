@@ -10,8 +10,8 @@ from src.metrics import roc_points, compute_auc
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--input_dir",  required=True)   # reads evaluation_summary.csv
-    p.add_argument("--output_dir", required=True)   # writes figures
+    p.add_argument("--input_dir",  required=True)
+    p.add_argument("--output_dir", required=True)
     p.add_argument("--model_keys", nargs="+", required=True)
     return p.parse_args()
 
@@ -21,17 +21,14 @@ OUT_DIR = Path(args.output_dir)
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_KEYS = args.model_keys
 
-# Load evaluation summary
 eval_path = INPUT_DIR / "evaluation_summary.csv"
 if not eval_path.exists():
     raise FileNotFoundError(f"Evaluation summary not found: {eval_path}")
 
 df = pd.read_csv(eval_path)
 
-# Filter for Min-K% method
 mink_data = df[df["method"] == "Min-K%"]
 
-# Generate ROC curves
 fig, ax = plt.subplots(figsize=(5, 4))
 
 colors = ["C0", "C1", "C2"]
@@ -40,11 +37,15 @@ for color, model_key in zip(colors, MODEL_KEYS):
     if subset.empty:
         print(f"WARNING: No Min-K% data for {model_key}")
         continue
-    
-    auc_val = subset["auc"].mean()
-    ax.plot([], [], color=color, lw=1.5, label=f"{model_key} (AUC={auc_val:.3f})")
 
-# Plot random baseline
+    scores = subset["score"].tolist()   # ← adjust to your actual column name
+    labels = subset["label"].tolist()   # ← adjust to your actual column name
+
+    fpr, tpr = roc_points(scores, labels)          # ← actually compute the curve
+    auc_val  = compute_auc(scores, labels)          # ← recompute for accuracy
+
+    ax.plot(fpr, tpr, color=color, lw=1.5, label=f"{model_key} (AUC={auc_val:.3f})")
+
 ax.plot([0, 1], [0, 1], "k--", alpha=0.4, lw=1, label="Random (AUC=0.500)")
 
 ax.set_xlabel("False Positive Rate")
