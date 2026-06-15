@@ -1,10 +1,12 @@
 # Min-K% Prob — Framework Implementation
 
-An independent implementation of the **Min-K% Prob** pretraining data detection method from:
+An independent implementation and empirical evaluation of the **Min-K% Prob** pretraining data detection method from:
 
 > *Detecting Pretraining Data from Large Language Models*
 > Weijia Shi, Anirudh Ajith, Mengzhou Xia, Yangsibo Huang, Daogao Liu, Terra Blevins, Danqi Chen, Luke Zettlemoyer
 > Published at **ICLR 2024** · [arXiv:2310.16789](https://arxiv.org/abs/2310.16789)
+
+This project was developed for **COSC 304 – Introduction to Artificial Intelligence**, PUP College of Computer and Information Sciences (BSCS 3-2, A.Y. 2025-2026).
 
 ---
 
@@ -12,15 +14,15 @@ An independent implementation of the **Min-K% Prob** pretraining data detection 
 
 This repository builds the core computational framework of Min-K% Prob — a reference-free membership inference attack (MIA) method for detecting whether a piece of text was included in an LLM's pretraining data.
 
-Given a text sample and black-box access to an LLM, the method checks: **was this text seen during pretraining?**
+Given a text sample and access to an LLM's token probabilities, the method checks: **was this text seen during pretraining?**
 
 The system produces:
 - Token log-probability scores for each input text
-- Min-K% Prob scores (default k=20)
-- PPL and zlib baseline scores
-- AUC and TPR@5% FPR evaluation metrics
-- A result table (Table 1-style)
-- ROC curve figure
+- Min-K% Prob scores (k=20)
+- Five baseline scores: PPL, Zlib, Lowercase, Neighborhood Attack, and Smaller Reference Model
+- ROC-AUC and TPR@5% FPR evaluation metrics across all methods
+- Per-run CSV output with scores and ground truth labels
+- ROC curve figures and summary result tables
 
 ---
 
@@ -33,11 +35,11 @@ The method is based on a simple hypothesis:
 
 Given a sequence of tokens $x = x_1, x_2, \ldots, x_N$, the score is computed as:
 
-$$\text{Min-K\% Prob}(x) = \frac{1}{|E|} \sum_{x_i \in \text{Min-K\%}(x)} \log p(x_i \mid x_1, \ldots, x_{i-1})$$
+$$\text{Min-K\% Prob}(x) = \frac{1}{|\text{Min-K\%}(x)|} \sum_{x_i \in \text{Min-K\%}(x)} \log p(x_i \mid x_1, \ldots, x_{i-1})$$
 
-where Min-K%(x) is the set of the k% tokens with the **lowest** token probabilities. A higher score means the text is more likely to be a member of the pretraining data.
+where Min-K%(x) is the set of the bottom k% of tokens by log probability. A higher (less negative) score means the text is more likely to be a member of the pretraining data.
 
-**No reference model or access to pretraining data is required.**
+**No reference model or access to the original pretraining data is required** (the Smaller Reference Model baseline is the only exception, used for comparison purposes).
 
 ---
 
@@ -49,25 +51,35 @@ We use **WikiMIA** — the benchmark introduced in the original paper — loaded
 swj0419/WikiMIA
 ```
 
-We use the `WikiMIA_length64` split. Labels are:
-- `1` = **member** (text seen during pretraining — from pre-2017 Wikipedia)
-- `0` = **non-member** (text not seen during pretraining — from post-2023 Wikipedia)
+All four token-length splits are evaluated:
 
-The temporal gap between member and non-member data ensures ground truth accuracy: events after an LLM's training cutoff are guaranteed to be unseen.
+| Split | Description |
+|---|---|
+| `WikiMIA_length32` | 32-token passages |
+| `WikiMIA_length64` | 64-token passages (primary reference split, 542 examples) |
+| `WikiMIA_length128` | 128-token passages |
+| `WikiMIA_length256` | 256-token passages |
+
+Labels:
+- `1` = **member** (text seen during pretraining — Wikipedia events pre-2017)
+- `0` = **non-member** (text not seen during pretraining — Wikipedia events post-January 2023)
+
+The temporal gap between member and non-member data ensures ground truth accuracy: events after a model's training cutoff are guaranteed to be unseen.
+
+Both **original** and **paraphrased** versions of all four splits are evaluated, extending the original paper's paraphrase analysis (which covered only the 64-token split) to all four lengths.
 
 ---
 
 ## Models
 
-We use models from the **Pythia** family (EleutherAI), chosen for accessibility and open weights:
+| Model | Parameters | Role |
+|---|---|---|
+| `EleutherAI/pythia-410m` | 410M | Smoke test only — verifies pipeline correctness |
+| `EleutherAI/pythia-2.8b` | 2.8B | Primary evaluation target |
+| `EleutherAI/gpt-neo-1.3B` | 1.3B | Primary evaluation target |
+| `facebook/opt-1.3b` | 1.3B | Primary evaluation target |
 
-| Model | Use |
-|---|---|
-| `EleutherAI/pythia-410m` | Primary (default, fastest) |
-| `EleutherAI/pythia-1b` | Fallback if 410m is insufficient |
-| `EleutherAI/pythia-2.8b` | Larger run, closer to paper results |
-
-Start with the smallest model to confirm the pipeline works before scaling up.
+Start with the smoke test model to confirm the pipeline works before running the primary evaluation models.
 
 ---
 
@@ -82,7 +94,7 @@ cd min-k-prob
 pip install -r requirements.txt
 ```
 
-**requirements.txt** includes:
+**requirements.txt:**
 ```
 torch
 transformers
@@ -91,8 +103,10 @@ scikit-learn
 pandas
 numpy
 matplotlib
-zlib  # standard library, no install needed
+tqdm
 ```
+
+> Note: `zlib` is part of the Python standard library and does not need to be installed separately.
 
 ---
 
@@ -103,7 +117,7 @@ zlib  # standard library, no install needed
 Confirms that the pipeline can load data, load a model, compute scores, and save output.
 
 ```bash
-python src/run.py --smoke_test
+python src/run.py --smoke_test --model EleutherAI/pythia-410m
 ```
 
 Expected output: `outputs/smoke_test_scores.csv`
@@ -111,31 +125,28 @@ Expected output: `outputs/smoke_test_scores.csv`
 ### Step 2 — Full run
 
 ```bash
-python src/run.py --dataset wikimia_length64 --model EleutherAI/pythia-410m --k 20
+python src/run.py --dataset wikimia_length64 --model EleutherAI/pythia-2.8b --k 20
 ```
+
+Repeat for each model (`pythia-2.8b`, `gpt-neo-1.3B`, `opt-1.3b`) and each split (`32`, `64`, `128`, `256`), for both original and paraphrased text.
 
 Expected outputs:
 ```
 outputs/all_scores.csv
 outputs/evaluation_summary.csv
-outputs/table1_results.csv
+outputs/table_results.csv
 figures/roc_curve_min_k.png
 ```
 
 ---
 
-## Expected Results
+## Results Summary
 
-Based on the original paper (Table 1, Pythia-2.8B, original setting):
+Full results, tables, and discussion are presented in the accompanying paper (`docs/AI_FINAL_PROJECT.pdf`). At the 64-token reference split using original text, Min-K% Prob achieved the highest AUC among all six methods for Pythia-2.8B (0.6067) and GPT-Neo-1.3B (0.6114), while the Smaller Reference Model baseline slightly outperformed it on OPT-1.3B (0.5873 vs. 0.5667).
 
-| Method | AUC |
-|---|---|
-| PPL | 0.61 |
-| Zlib | 0.65 |
-| Neighbor | 0.61 |
-| **Min-K% Prob** | **0.67** |
+Detection performance generally improved with longer passage lengths across all models, and — notably — paraphrased text at the 256-token split produced the *strongest* detection signal observed in the study (AUC up to 0.75), reversing the expectation that paraphrasing always weakens detection.
 
-Our implementation targets results in the same range using `pythia-410m` on `WikiMIA_length64`. Results may differ slightly due to model size.
+> Note: because this study uses smaller models (1.3B–2.8B parameters) than those in the original paper (up to 66B), AUC values are expected to be lower in absolute terms. The goal of this implementation is to verify the algorithmic mechanism and relative ranking of methods, not to reproduce the original paper's exact numbers.
 
 ---
 
@@ -143,10 +154,10 @@ Our implementation targets results in the same range using `pythia-410m` on `Wik
 
 | Member | Role | Primary Deliverables |
 |---|---|---|
-| Dazel | Dataset and Data Preparation | WikiMIA loading, dataset script, dataset docs |
-| Hanna | Implementation | Model loading, token log-prob pipeline, Min-K% scoring |
-| Jianna | Baselines and Evaluation | PPL/zlib baselines, AUC, TPR, result table, ROC curve |
-| Kurt | Documentation and Final Assembly | Methodology, pseudocode, limitations, README, final report |
+| Argallon, Dazel | Dataset and Data Preparation | WikiMIA loading, dataset scripts, dataset documentation |
+| Babasa, Maria Hanna | Implementation | Model loading, token log-prob pipeline, Min-K% Prob scoring |
+| Castillo, Julianna Leila (Jianna) | Baselines and Evaluation | Baseline implementations, AUC/TPR evaluation, result tables, ROC curves |
+| Borondia, Kurt Ashley | Documentation and Final Assembly | Methodology, pseudocode, limitations, README, final report |
 
 ---
 
