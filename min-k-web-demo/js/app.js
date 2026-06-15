@@ -27,6 +27,62 @@ function hideError() {
     DOM.errorContainer.classList.add('hidden');
 }
 
+function parseDecimalInput(value) {
+    const normalized = String(value ?? '').trim().replace(',', '.');
+    if (!normalized) return NaN;
+    const number = Number(normalized);
+    return Number.isFinite(number) ? number : NaN;
+}
+
+function formatThresholdInput() {
+    const threshold = parseDecimalInput(DOM.thresholdValue.value);
+    if (Number.isFinite(threshold)) {
+        DOM.thresholdValue.value = threshold.toFixed(1);
+    }
+}
+
+function getSelectedMaxLength() {
+    const selected = Number.parseInt(DOM.maxTokens?.value ?? DEFAULT_MAX_LENGTH, 10);
+    return Number.isFinite(selected) ? selected : DEFAULT_MAX_LENGTH;
+}
+
+function populateTokenLengthOptions() {
+    if (!DOM.maxTokens || !Array.isArray(TOKEN_LENGTH_OPTIONS)) return;
+    DOM.maxTokens.innerHTML = TOKEN_LENGTH_OPTIONS.map(length => {
+        const selected = Number(length) === Number(DEFAULT_MAX_LENGTH) ? 'selected' : '';
+        return `<option value="${length}" class="bg-slate-900" ${selected}>${length}</option>`;
+    }).join('');
+}
+
+function applyThresholdToResult(result, threshold) {
+    const minK = Number(result?.metrics?.min_k_score);
+    if (!Number.isFinite(minK) || !Number.isFinite(threshold)) return result;
+
+    const isMember = minK > threshold;
+    result.prediction = {
+        ...(result.prediction || {}),
+        label: isMember ? 'Likely member / seen' : 'Likely non-member / unseen',
+        tone: isMember ? 'member' : 'non-member',
+        is_member: isMember,
+        threshold,
+        rule: 'min_k_score > threshold',
+        comparison: `${minK.toFixed(4)} > ${threshold.toFixed(1)}`,
+    };
+    result.runtime = {
+        ...(result.runtime || {}),
+        threshold,
+    };
+    return result;
+}
+
+function updateRenderedThresholdDecision() {
+    const threshold = parseDecimalInput(DOM.thresholdValue.value);
+    if (!Number.isFinite(threshold) || !STATE.resultsData.length) return;
+
+    STATE.resultsData = STATE.resultsData.map(result => applyThresholdToResult(result, threshold));
+    renderResults();
+}
+
 /* ---- Core analysis handler ---- */
 async function handleAnalyze() {
     hideError();
@@ -40,6 +96,12 @@ async function handleAnalyze() {
 
     if (selectedModels.length === 0) return showError("Please select at least one model preset or enter a custom model.");
     if (!DOM.inputText.value.trim())  return showError("Please enter some text to analyze.");
+
+    const threshold = parseDecimalInput(DOM.thresholdValue.value);
+    if (!Number.isFinite(threshold)) return showError("Please enter a valid threshold, for example -4.0.");
+    formatThresholdInput();
+
+    const maxLength = getSelectedMaxLength();
 
     // Loading state
     DOM.analyzeBtn.disabled = true;
@@ -55,8 +117,8 @@ async function handleAnalyze() {
             DOM.inputText.value.trim(),
             selectedModels,
             parseFloat(DOM.kPercent.value),
-            parseFloat(DOM.thresholdValue.value),
-            DEFAULT_MAX_LENGTH
+            threshold,
+            maxLength
         );
 
         const failedResults = rawResults.filter(r => r.status === 'error');
@@ -73,7 +135,7 @@ async function handleAnalyze() {
             throw new Error("All selected models failed. Try Pythia-70M first, or run heavy models in Colab/GPU.");
         }
 
-        STATE.resultsData = okResults;
+        STATE.resultsData = okResults.map(result => applyThresholdToResult(result, threshold));
         renderResults();
 
         setTimeout(() => {
@@ -248,6 +310,8 @@ async function loadDashboard(force = false) {
 
 /* ---- Initialisation ---- */
 function init() {
+    populateTokenLengthOptions();
+
     // Navigation
     DOM.tabDemo.addEventListener('click', () => switchView('demo'));
     DOM.tabDash.addEventListener('click', () => { switchView('dash'); loadDashboard(); });
@@ -275,6 +339,18 @@ function init() {
     // K% slider live update
     DOM.kPercent.addEventListener('input', e => {
         DOM.kValueDisplay.textContent = `${e.target.value}%`;
+    });
+
+    // Keep threshold formatting consistent as dot-decimal, e.g. -4.0.
+    DOM.thresholdValue.addEventListener('input', e => {
+        const cursorPosition = e.target.selectionStart;
+        e.target.value = e.target.value.replace(',', '.');
+        e.target.setSelectionRange(cursorPosition, cursorPosition);
+        updateRenderedThresholdDecision();
+    });
+    DOM.thresholdValue.addEventListener('blur', () => {
+        formatThresholdInput();
+        updateRenderedThresholdDecision();
     });
 
     // Sample text loader

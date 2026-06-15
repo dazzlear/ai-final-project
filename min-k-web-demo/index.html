@@ -103,22 +103,35 @@
                                 <input type="range" id="kPercent" min="1" max="100" step="1" value="20"
                                     class="w-full accent-purple-500 h-2 bg-glass-200 rounded-lg appearance-none cursor-pointer">
                             </div>
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">Tokens</label>
-                                    <select id="maxTokens" class="w-full glass-input rounded-xl px-3 py-3 text-sm transition-all appearance-none">
-                                        <option value="128"  class="bg-slate-900">128</option>
-                                        <option value="256"  class="bg-slate-900">256</option>
-                                        <option value="512"  class="bg-slate-900" selected>512</option>
-                                        <option value="1024" class="bg-slate-900">1024</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">Threshold</label>
-                                    <input type="number" id="thresholdValue" value="-4.0" step="0.1"
-                                        class="w-full glass-input rounded-xl px-3 py-3 text-sm transition-all">
-                                </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">Tokens</label>
+                                <select id="maxTokens" class="w-full glass-input rounded-xl px-3 py-3 text-sm transition-all appearance-none">
+                                    <option value="32" class="bg-slate-900">32</option>
+                                    <option value="64" class="bg-slate-900" selected>64</option>
+                                    <option value="128" class="bg-slate-900">128</option>
+                                    <option value="256" class="bg-slate-900">256</option>
+                                </select>
                             </div>
+
+                            <details class="rounded-2xl border border-amber-400/20 bg-amber-500/5 p-4 group">
+                                <summary class="cursor-pointer list-none flex items-center justify-between gap-3 text-xs font-bold uppercase tracking-widest text-amber-200">
+                                    <span>Advanced threshold</span>
+                                    <span class="text-amber-300/70 group-open:rotate-180 transition-transform">⌄</span>
+                                </summary>
+                                <div class="mt-4 space-y-3">
+                                    <div>
+                                        <label class="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">Membership threshold</label>
+                                        <input type="text" id="thresholdValue" value="-4.0" inputmode="decimal" autocomplete="off"
+                                            class="w-full glass-input rounded-xl px-3 py-3 text-sm transition-all font-mono">
+                                    </div>
+                                    <p class="text-[11px] leading-relaxed text-amber-100/80">
+                                        The threshold is only a guide. For better accuracy, test and adjust it using sample texts that are already known as seen or unseen.
+                                    </p>
+                                    <p class="text-[11px] leading-relaxed text-slate-400">
+                                       Changing the threshold only changes the final membership result: “Likely Seen/Member” or “Likely Unseen/Non-member.” The Min-K% score will stay the same because it comes from the model’s token probabilities.
+                                    </p>
+                                </div>
+                            </details>
                         </div>
                     </div>
                 </aside>
@@ -172,12 +185,13 @@
                                 Comparison Summary
                             </h2>
                             <div class="overflow-x-auto relative z-10">
-                                <table class="w-full text-left border-collapse min-w-[600px]">
+                                <table class="w-full text-left border-collapse min-w-[760px]">
                                     <thead>
                                         <tr class="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-white/10">
                                             <th class="pb-4 pr-4 pl-2">Model Architecture</th>
                                             <th class="pb-4 px-4">Membership Label</th>
                                             <th class="pb-4 px-4">Min-K% Score</th>
+                                            <th class="pb-4 px-4">Threshold</th>
                                             <th class="pb-4 px-4">Base Loss</th>
                                             <th class="pb-4 px-4">Z-lib Score</th>
                                         </tr>
